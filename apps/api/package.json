@@ -1,0 +1,31 @@
+{
+  "name": "@archon-treasury/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "dev": "node --watch --import tsx src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint src/",
+    "test": "vitest run",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@archon-treasury/config": "workspace:*",
+    "@archon-treasury/domain": "workspace:*",
+    "@archon-treasury/observability": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.0.0",
+    "vitest": "^3.0.0"
+  }
+}
