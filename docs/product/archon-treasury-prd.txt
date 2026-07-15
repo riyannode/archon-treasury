@@ -1,0 +1,4560 @@
+ARCHON TREASURY
+FUTURE-FINAL PRODUCT PRD + ARCHITECTURE + INCREMENTAL BUILD PLAN
+PRODUCTION-READY MVP TO MULTI-TENANT AGENT TREASURY PLATFORM
+
+Version                : 3.0
+Status                 : North-Star Architecture and Implementation Specification
+Date                   : 15 July 2026
+Repository baseline    : https://github.com/riyannode/agent-stack-starter-kits
+Primary ecosystem      : Circle / Arc
+Agent runtime          : Hermes Agent by Nous Research
+Agent payment wallet   : Circle Agent Wallet via Circle CLI
+Treasury wallet        : Circle Developer-Controlled Wallet (DCW)
+Treasury bridge        : Circle App Kit / Bridge Kit + Circle Wallet adapter
+Agent tool protocol    : MCP
+Primary asset          : USDC
+Initial destination    : Arc Testnet
+Initial source chains  : Ethereum Sepolia and supported Circle testnet chains
+Document language      : Indonesian
+
+======================================================================
+0. TUJUAN DOKUMEN
+======================================================================
+
+Dokumen ini adalah gabungan Product Requirements Document, technical
+architecture specification, production readiness specification, build plan,
+daftar implementasi, acceptance criteria, security requirements, dan launch
+gate.
+
+Archon Treasury MVP dalam dokumen ini bukan mock demo.
+
+Semua jalur utama wajib menggunakan integrasi nyata:
+
+- Circle Agent Wallet nyata untuk pembayaran x402.
+- Circle CLI nyata.
+- Circle Gateway Nanopayments nyata bila seller mengharuskannya.
+- Circle Developer-Controlled Wallet nyata untuk treasury.
+- Arc Testnet dan source testnet nyata.
+- CCTP/App Kit/Bridge Kit nyata untuk bridging.
+- Blockchain RPC dan explorer nyata.
+- Database dan durable queue nyata.
+- Approval dan audit records nyata.
+- Signed receipt dan transaction hash nyata.
+- Failure dan recovery path nyata.
+
+Tidak boleh ada quote palsu, fake transaction hash, hardcoded success, timer
+pura-pura menyelesaikan bridge, balance fixture di production, provider dummy
+di production, atau mocked payment receipt di staging/production.
+
+Mock hanya boleh digunakan untuk unit test dan isolated CI test.
+
+Definisi production-ready MVP:
+
+- Scope kecil tetapi dapat dipakai user nyata.
+- Sudah multi-tenant.
+- Wallet dan secrets terisolasi.
+- Agent dapat diganti.
+- Transaction idempotent.
+- Human approval tersedia.
+- Audit trail tersedia.
+- Observability tersedia.
+- Recovery tersedia.
+- Production testnet memakai integrasi nyata.
+- Mainnet dapat diaktifkan setelah launch gate tanpa rewrite arsitektur.
+
+======================================================================
+1. EXECUTIVE DECISION
+======================================================================
+
+Archon Treasury memakai arsitektur dua wallet.
+
+A. AGENT RESEARCH WALLET
+
+Jenis:
+Circle Agent Wallet.
+
+Akses:
+Circle CLI melalui wrapper package.
+
+Fungsi:
+- Search service x402.
+- Inspect service.
+- Membayar route intelligence.
+- Membayar risk report.
+- Membayar fee forecast.
+- Membayar compliance report bila tersedia.
+- Menggunakan Gateway Nanopayments untuk microservice calls.
+
+Saldo:
+Kecil dan dibatasi.
+
+Akses Hermes:
+Hermes boleh memanggil MCP tools yang membungkus operasi research wallet.
+
+B. TREASURY EXECUTION WALLET
+
+Jenis:
+Circle Developer-Controlled Wallet.
+
+Akses:
+Circle SDK/API dari execution worker.
+
+Fungsi:
+- Menyimpan treasury USDC.
+- Melakukan bridge setelah approval.
+- Menjalankan recovery.
+- Menjalankan treasury transaction yang telah diotorisasi.
+
+Saldo:
+Dapat lebih besar daripada agent research wallet.
+
+Akses Hermes:
+Hermes tidak memiliki akses langsung.
+
+Hermes hanya:
+- Memahami intent.
+- Memanggil research tools.
+- Meminta route data.
+- Membaca deterministic scoring.
+- Menghasilkan recommendation.
+- Membuat proposal melalui tool sempit.
+
+Hermes tidak:
+- Memegang private key.
+- Memegang Circle entity secret.
+- Memegang Circle API key.
+- Melakukan approval.
+- Memanggil DCW secara langsung.
+- Membangun arbitrary calldata.
+- Menjalankan bridge.
+- Mengubah proposal setelah approval.
+
+Backend deterministic menangani:
+- Policy.
+- Route eligibility.
+- Quote validation.
+- Fee calculation.
+- Scoring.
+- Proposal hashing.
+- Approval binding.
+- DCW execution.
+- CCTP/App Kit bridge.
+- Transaction state.
+- Recovery.
+- Receipt.
+- Audit.
+
+======================================================================
+2. MASALAH YANG DISELESAIKAN
+======================================================================
+
+2.1 Masalah bisnis
+
+Perusahaan atau tim crypto yang memegang USDC pada beberapa chain menghadapi
+proses treasury lintas chain yang terfragmentasi.
+
+Operator harus:
+- Memeriksa saldo di beberapa chain.
+- Mengetahui apakah destination chain aktif.
+- Melihat biaya bridge.
+- Memilih Fast atau Standard transfer.
+- Memahami risiko route.
+- Memeriksa recipient.
+- Memastikan policy perusahaan terpenuhi.
+- Melakukan transfer.
+- Memantau burn, attestation, dan mint.
+- Menangani transaksi yang gagal sebagian.
+- Menyimpan bukti keputusan dan approval.
+
+Bridge UI biasa membantu transaksi, tetapi bukan treasury control plane.
+
+2.2 Masalah agent
+
+Agent dapat membantu research dan orchestration, tetapi LLM tidak boleh menjadi
+pengendali uang.
+
+LLM dapat:
+- Salah memahami amount.
+- Salah membaca chain.
+- Memilih quote expired.
+- Retry pembayaran x402 yang sebenarnya sudah terpotong.
+- Terkena prompt injection dari service response.
+- Menghasilkan recipient salah.
+- Mengubah parameter antara recommendation dan execution.
+- Mengulang transaction saat timeout.
+- Menyimpulkan transaksi berhasil hanya dari teks tool.
+
+Archon Treasury harus memisahkan reasoning dari authorization.
+
+2.3 Masalah pembayaran API
+
+Agent membutuhkan data kecil secara dinamis:
+- Bridge risk.
+- Provider health.
+- RPC health.
+- Current fee signal.
+- Liquidity signal.
+- Sanctions screening.
+- Chain status.
+- Historical reliability.
+
+Subscription API dan manual API key provisioning untuk setiap provider membuat
+agent sulit memilih provider secara dinamis.
+
+x402 dan Gateway Nanopayments memungkinkan pembelian service per request.
+
+2.4 Masalah recovery
+
+Bridge bukan satu atomic transaction.
+
+CCTP/App Kit melibatkan:
+- Approve.
+- Burn.
+- Fetch attestation.
+- Mint.
+
+Jika request timeout setelah burn berhasil, sistem tidak boleh memulai burn
+baru. Sistem harus menyimpan state dan melanjutkan dari tahap terakhir.
+
+2.5 Masalah audit
+
+Organisasi membutuhkan jawaban untuk:
+- Siapa meminta transfer.
+- Instruction awal.
+- Amount dan recipient yang dikonfirmasi.
+- Policy version.
+- Route yang tersedia.
+- Data berbayar yang dibeli agent.
+- Biaya x402.
+- Alasan route dipilih.
+- Siapa menyetujui.
+- Proposal hash.
+- Transaction hash.
+- Amount akhir.
+- Recovery yang dilakukan.
+
+======================================================================
+3. GOAL PROJECT
+======================================================================
+
+3.1 Product goal
+
+Membangun control plane untuk treasury USDC lintas chain yang memungkinkan
+agent melakukan research dan recommendation, tetapi uang hanya bergerak melalui
+policy engine, explicit approval, dan deterministic execution.
+
+3.2 User goal
+
+User dapat memberi intent:
+
+"Move 5,000 USDC from Ethereum to Arc. Maximum bridge fee 0.15%.
+Prioritize safety. Do not execute without approval."
+
+User mendapatkan:
+- Normalized intent.
+- Live treasury state.
+- Real route estimate.
+- Fast/Standard option bila didukung.
+- Real paid intelligence.
+- Deterministic eligibility checks.
+- Deterministic score.
+- Hermes explanation.
+- Immutable proposal.
+- Approval screen.
+- Real bridge status.
+- Final receipt.
+- Recovery action jika terjadi partial failure.
+
+3.3 Engineering goal
+
+Foundation harus:
+- Tidak terikat satu LLM.
+- Tidak terikat satu wallet implementation.
+- Tidak terikat satu bridge SDK.
+- Mendukung chain/provider baru tanpa rewrite.
+- Dapat dipisah menjadi service saat scale naik.
+- Memiliki state machine aman.
+- Tidak mengandalkan in-memory source of truth.
+- Dapat di-observe dan di-audit.
+
+3.4 Business goal
+
+Membuktikan organisasi mau memakai agent-assisted treasury workflow karena:
+- Mengurangi manual research.
+- Mengurangi risiko salah route.
+- Menyediakan approval dan audit.
+- Menyediakan recovery.
+- Memungkinkan paid intelligence per task.
+- Menjaga separation of duties.
+
+3.5 MVP success goal
+
+Project dianggap mencapai MVP ketika:
+1. User dapat membuat organization dan treasury.
+2. DCW nyata dapat dibuat atau dihubungkan.
+3. Agent Wallet nyata dapat dibuat atau dihubungkan.
+4. Agent Wallet dapat membayar service x402 nyata.
+5. Route estimate memakai data nyata.
+6. Policy engine dapat menolak route nyata.
+7. Hermes dapat membuat recommendation dari MCP tools.
+8. Proposal immutable dapat dibuat.
+9. User dapat approve lewat web.
+10. DCW dapat melakukan bridge nyata menuju Arc Testnet.
+11. Semua bridge step disimpan.
+12. Partial failure dapat dilanjutkan.
+13. Final receipt memiliki transaction hashes nyata.
+14. Audit export dapat dibuat.
+15. Hermes tidak dapat mengeksekusi treasury transaction.
+16. Tidak ada fake data di deployed flow.
+
+======================================================================
+4. PRODUCT POSITIONING
+======================================================================
+
+One-line:
+
+"Archon Treasury is the policy, intelligence, approval, and execution control plane
+for crosschain USDC treasury operations."
+
+Initial wedge:
+
+"Safely route treasury USDC to Arc with agent-assisted research and
+human-approved execution."
+
+Bukan:
+- Bridge aggregator retail.
+- Trading bot.
+- Generic AI wallet.
+- Generic x402 marketplace.
+- Chatbot yang dapat mengirim crypto.
+- Token launchpad.
+- Autonomous hedge fund.
+- Custody protocol.
+- Decentralized bridge.
+
+Differentiation:
+1. Two-wallet separation.
+2. Agent cannot execute.
+3. Paid intelligence.
+4. Immutable approval.
+5. Recovery-first.
+6. Audit-first.
+
+======================================================================
+5. TARGET USERS
+======================================================================
+
+Treasury Operator:
+- Melihat balance.
+- Membuat transfer intent.
+- Menjalankan route research.
+- Melihat proposal.
+- Membatalkan draft.
+- Memonitor execution.
+
+Approver:
+- Melihat proposal lengkap.
+- Melihat deterministic checks.
+- Melihat Hermes explanation.
+- Approve/reject.
+- Approve recovery action.
+
+Organization Admin:
+- Mengelola member.
+- Membuat treasury.
+- Menghubungkan wallet.
+- Membuat policy.
+- Mengelola provider.
+- Emergency stop.
+- Mengatur x402 task budget.
+
+Auditor:
+- Membaca proposal, approval, tool purchase, execution, receipt.
+- Export audit.
+- Tidak dapat approve atau execute.
+
+======================================================================
+6. SCOPE MVP
+======================================================================
+
+IN SCOPE
+
+Account:
+- Authentication.
+- Organization.
+- Member.
+- RBAC.
+- Treasury.
+- Environment indicator.
+
+Wallet:
+- Circle Agent Wallet setup/status.
+- Agent Wallet balance.
+- Gateway balance.
+- DCW wallet set.
+- DCW wallet.
+- DCW balance.
+- Wallet health.
+
+Network:
+- Arc Testnet.
+- Ethereum Sepolia.
+- Testnet chain Circle/App Kit yang dipilih saat implementasi.
+- Chain registry from config.
+
+Asset:
+- USDC only.
+
+Route:
+- Source menuju Arc Testnet.
+- Fast transfer.
+- Standard/slow transfer.
+- Max fee.
+- Live estimate.
+- Live provider/RPC health.
+- Real eligibility.
+- Deterministic scoring.
+
+x402:
+- Search service.
+- Inspect service.
+- Max payment.
+- Agent Wallet payment.
+- Gateway balance/deposit via operator approval.
+- Paid service receipt.
+- Paid intelligence report.
+- Task spend cap.
+- Provider allowlist.
+
+Agent:
+- Hermes di VPS.
+- Private MCP.
+- Route recommendation.
+- Explanation.
+- Read/research tools only.
+- Fallback bila Hermes unavailable.
+
+Approval:
+- Manual approval setiap treasury movement.
+- Approval expiry.
+- Proposal hash binding.
+- Recovery approval.
+
+Execution:
+- DCW.
+- App Kit/Bridge Kit.
+- Circle Wallet adapter.
+- CCTP.
+- State persistence.
+- Retry/recovery.
+- Receipt.
+
+Web:
+- Dashboard.
+- Treasury.
+- New route.
+- Proposal detail.
+- Approval.
+- Execution detail.
+- History.
+- Policy.
+- Wallet.
+- Provider.
+- Agent status.
+- Audit.
+
+OUT OF SCOPE
+
+- Swap.
+- EURC.
+- Fiat payout.
+- OTC.
+- Permissionless provider marketplace.
+- Third-party bridge protocols.
+- Fully autonomous treasury.
+- Multi-signature quorum.
+- Mobile app.
+- Governance token.
+- ERC-8004.
+- ERC-8183.
+- Insurance.
+- Tax.
+- Yield.
+- Lending.
+- Trading.
+- Arbitrary contract execution.
+- Generic send transaction tool.
+
+======================================================================
+7. NO-MOCK PRODUCTION RULES
+======================================================================
+
+Local:
+Mock hanya saat unit test.
+
+Development:
+Real testnet preferred. Seed data hanya untuk UI development dan wajib dilabeli.
+
+Staging:
+Tidak boleh mocked blockchain, wallet, payment, quote, execution, atau receipt.
+
+Production Testnet:
+Tidak boleh mock.
+
+Production Mainnet:
+Tidak boleh mock.
+
+Forbidden:
+- setTimeout sebagai bridge completion.
+- random risk score.
+- hardcoded balance.
+- fake provider response.
+- static route price dipresentasikan sebagai live.
+- fabricated transaction hash.
+- menelan error lalu return success.
+- marking completed dari Hermes text.
+- auto-approve karena testnet.
+- menyimpan entity secret plaintext.
+- browser memanggil DCW API langsung.
+
+======================================================================
+8. REAL X402 INTELLIGENCE SERVICE
+======================================================================
+
+MVP wajib memiliki minimal satu service x402 nyata.
+
+Recommended:
+Archon Treasury Route Health API.
+
+Data nyata:
+- Source RPC latency.
+- Destination RPC latency.
+- RPC error rate.
+- Latest block timestamp.
+- Chain head freshness.
+- Circle bridge fee.
+- App Kit route capability.
+- Recent Archon Treasury execution completion rate.
+- Attestation p95.
+- Provider incident.
+
+Output:
+{
+  "route": "Ethereum_Sepolia->Arc_Testnet",
+  "riskScore": 91,
+  "health": "HEALTHY",
+  "rpcLatencyMs": {
+    "source": 185,
+    "destination": 104
+  },
+  "recentCompletionRate": 0.986,
+  "attestationP95Seconds": 58,
+  "incidents": [],
+  "observedAt": "ISO-8601"
+}
+
+Service:
+- Separate deployable service.
+- x402 protected.
+- Signed report.
+- Publishes schema.
+- Stores payment receipt.
+- Tidak membuat data palsu.
+- Return DEGRADED/UNKNOWN bila upstream unavailable.
+
+======================================================================
+9. FINAL ARCHITECTURE
+======================================================================
+
+Browser
+  |
+  v
+Next.js Web App
+  |
+  v
+Archon Treasury API
+  |
+  +---------------------------+
+  |                           |
+  v                           v
+PostgreSQL                 Durable Queue
+                              |
+                +-------------+-------------+
+                |             |             |
+                v             v             v
+          Route Worker  Execution Worker  Indexer
+                |             |             |
+        +-------+------+      |             |
+        |              |      |             |
+        v              v      v             v
+ Circle CLI       x402 Provider  DCW/App Kit  RPC/Circle
+ Agent Wallet     Registry       Bridge       Status
+
+Archon Treasury API
+  |
+  v
+Agent Orchestrator
+  |
+  v
+Hermes Service
+  |
+  v
+Private MCP Server
+  |
+  v
+Scoped Route/Policy/Research Services
+
+Money path A:
+Hermes -> MCP -> x402 purchase -> Agent Wallet -> signed report -> database.
+
+Money path B:
+User approve -> API -> execution worker -> DCW -> App Kit/CCTP -> Arc -> receipt.
+
+Hermes tidak ada di money path B.
+
+======================================================================
+10. REPOSITORY STRATEGY
+======================================================================
+
+Base:
+https://github.com/riyannode/agent-stack-starter-kits
+
+Gunakan packages/circle-tools sebagai fondasi wrapper.
+
+Production monorepo:
+
+archon-treasury/
+├── apps/
+│   ├── web/
+│   └── api/
+├── services/
+│   ├── hermes-gateway/
+│   ├── mcp/
+│   ├── route-worker/
+│   ├── execution-worker/
+│   ├── indexer/
+│   └── route-health-provider/
+├── packages/
+│   ├── circle-tools/
+│   ├── domain/
+│   ├── database/
+│   ├── auth/
+│   ├── policy-engine/
+│   ├── route-engine/
+│   ├── agent-orchestrator/
+│   ├── mcp-contracts/
+│   ├── x402-client/
+│   ├── x402-provider/
+│   ├── agent-wallet-adapter/
+│   ├── dcw-wallet-adapter/
+│   ├── bridge-adapter/
+│   ├── provider-registry/
+│   ├── chain-registry/
+│   ├── observability/
+│   ├── config/
+│   └── ui/
+├── infra/
+├── docs/
+└── tests/
+
+Existing kits dipindah ke examples atau dikeluarkan dari production build graph.
+
+======================================================================
+11. REQUIRED CHANGES TO circle-tools
+======================================================================
+
+1. Chain registry:
+- ARC_TESTNET.
+- ETHEREUM_SEPOLIA.
+- BASE_SEPOLIA bila supported.
+- Future mainnet config.
+- Startup validation.
+
+2. Async CLI runner:
+- execFile/spawn tanpa shell.
+- Timeout.
+- Cancellation.
+- Structured errors.
+- Version pin.
+- Retry hanya read command.
+- Mutation tanpa retry kecuali ada idempotency.
+
+3. Circle CLI version check:
+- Run circle --version.
+- Refuse mutation pada unsupported major version.
+- Store version di setiap operation.
+
+4. Bridge wrapper:
+- getBridgeFee.
+- bridgeTransfer.
+- getBridgeStatus.
+
+5. Services pay hardening:
+- wajib maxAmountUsdc.
+- wajib provider registry.
+- tidak menerima arbitrary URL dari Hermes.
+- inspect sebelum pay.
+- task cap.
+- request/response hash.
+- no unsafe retry.
+- response size limit.
+
+6. Gateway:
+- Hermes hanya boleh read balance.
+- deposit harus operator approved.
+- untuk awal, pre-fund operationally.
+
+7. Split read/mutation exports:
+- @archon-treasury/circle-tools/read
+- @archon-treasury/circle-tools/mutations
+
+======================================================================
+12. DCW IMPLEMENTATION
+======================================================================
+
+Package:
+packages/dcw-wallet-adapter
+
+Use:
+@circle-fin/developer-controlled-wallets
+
+Secrets:
+- Circle API key.
+- Circle entity secret.
+- Wallet set references.
+
+Rules:
+- Managed secret store.
+- Tidak di database plaintext.
+- Tidak ke browser.
+- Tidak ke Hermes.
+- Tidak ke MCP.
+- Tidak ke logs.
+- Separate staging/production.
+- Separate testnet/mainnet wallet sets.
+
+Recommended:
+- Satu wallet set per environment.
+- Satu treasury wallet per organization.
+- EOA on Arc Testnet initially.
+
+Interface:
+
+interface TreasuryWalletAdapter {
+  createWallet(input): Promise<TreasuryWallet>;
+  getWallet(input): Promise<TreasuryWallet>;
+  getBalances(input): Promise<WalletBalance[]>;
+  prepareBridgeSigner(input): Promise<BridgeSignerContext>;
+  executeApprovedOperation(input): Promise<OperationResult>;
+  getTransaction(input): Promise<TransactionState>;
+  healthCheck(): Promise<AdapterHealth>;
+}
+
+Tidak ada generic arbitrary execute API di luar adapter.
+
+======================================================================
+13. APP KIT / BRIDGE KIT
+======================================================================
+
+Package:
+packages/bridge-adapter
+
+Use:
+- @circle-fin/bridge-kit atau @circle-fin/app-kit.
+- @circle-fin/adapter-circle-wallets.
+- DCW SDK.
+
+Interface:
+
+interface BridgeAdapter {
+  estimate(input): Promise<BridgeEstimate>;
+  buildCandidates(input): Promise<BridgeCandidate[]>;
+  execute(input): Promise<BridgeResultRecord>;
+  retry(input): Promise<BridgeResultRecord>;
+  inspect(input): Promise<BridgeInspection>;
+  healthCheck(): Promise<BridgeHealth>;
+}
+
+Candidate FAST:
+- Real support.
+- Real estimate.
+- Max fee.
+- TTL.
+
+Candidate SLOW:
+- Real support.
+- Real estimate.
+- TTL.
+
+Jika hanya satu mode didukung, hanya tampilkan satu.
+Tidak boleh membuat alternative palsu.
+
+Persist:
+- Approve state/txHash.
+- Burn state/txHash.
+- Attestation state/reference.
+- Mint state/txHash.
+- Error class.
+- Retryability.
+- Adapter version.
+- Result hash.
+
+Recovery:
+- Jangan duplicate burn.
+- Resume attestation.
+- Retry mint.
+- Ambiguous state -> MANUAL_REVIEW.
+
+======================================================================
+14. HERMES IMPLEMENTATION
+======================================================================
+
+Hermes berjalan di VPS/private container.
+
+Hermes:
+- Parse natural-language intent.
+- Call read/research tools.
+- Buy paid intelligence.
+- Read ranked candidates.
+- Generate recommendation.
+- Create proposal.
+- Summarize execution.
+
+Hermes tidak:
+- Execute.
+- Approve.
+- Call DCW.
+- Call bridge mutation.
+- Use shell.
+- Use arbitrary HTTP.
+- Use arbitrary SQL.
+- Update policy.
+
+MCP allowlist:
+
+- get_treasury_state
+- get_treasury_policy
+- get_route_intent
+- discover_route_candidates
+- purchase_route_intelligence
+- simulate_route_candidates
+- get_ranked_route_candidates
+- create_route_proposal
+- get_route_proposal
+- get_execution_status
+
+Task limits:
+- Max tool calls.
+- Max elapsed time.
+- Max x402 spend.
+- Max provider count.
+- Max payload.
+- Cancellation.
+
+Structured output:
+{
+  "selectedCandidateId": "uuid",
+  "summary": "string",
+  "reasons": ["string"],
+  "tradeoffs": ["string"],
+  "warnings": ["string"],
+  "confidence": 0.0
+}
+
+Fallback:
+Jika Hermes down, deterministic route engine dan manual selection tetap jalan.
+
+======================================================================
+15. MCP TOOL CONTRACTS
+======================================================================
+
+Read:
+- get_treasury_state.
+- get_treasury_policy.
+- get_route_intent.
+- get_route_proposal.
+- get_execution_status.
+
+Research:
+- discover_route_candidates.
+- purchase_route_intelligence.
+- simulate_route_candidates.
+- get_ranked_route_candidates.
+
+Write allowed:
+- create_route_proposal.
+
+Forbidden:
+- approve_proposal.
+- execute_proposal.
+- retry_bridge.
+- update_policy.
+- create_dcw_wallet.
+- run_circle_cli.
+- circle_wallet_transfer.
+- circle_bridge_transfer.
+- circle_gateway_deposit.
+- arbitrary_http.
+- shell.
+- filesystem write.
+
+Tool token harus bound ke:
+- Task ID.
+- Organization ID.
+- Treasury ID.
+- Scope.
+- Expiry.
+- Trace ID.
+
+======================================================================
+16. CORE FLOW
+======================================================================
+
+Onboarding:
+1. Sign in.
+2. Create organization.
+3. Create treasury.
+4. Provision DCW.
+5. Connect Agent Wallet.
+6. Check CLI session.
+7. Check Agent Wallet balance.
+8. Check Gateway balance.
+9. Check DCW balance.
+10. Set policy.
+
+Intent:
+1. User input.
+2. Hermes parses draft bila natural language.
+3. UI shows parsed fields.
+4. User confirms.
+5. Intent becomes CONFIRMED.
+
+Discovery:
+1. Load confirmed intent.
+2. Check support.
+3. Check balance.
+4. Get real App Kit estimates.
+5. Build real FAST/SLOW candidates.
+6. Buy paid intelligence.
+7. Apply policy.
+8. Score.
+9. Store.
+
+Recommendation:
+1. Hermes reads candidates.
+2. Hermes picks valid candidate.
+3. Hermes explains.
+4. Backend creates immutable proposal.
+
+Approval:
+1. Approver reviews all fields.
+2. Explicit approval.
+3. Approval bound to proposal hash.
+
+Execution:
+1. Lock execution.
+2. Validate approval.
+3. Revalidate policy.
+4. Recheck balance.
+5. Re-estimate.
+6. Execute DCW/App Kit.
+7. Persist each step.
+8. Emit events.
+
+Completion:
+- Store actual amount.
+- Store tx hashes.
+- Create receipt.
+- Update audit.
+
+Recovery:
+- Mark RECOVERABLE.
+- Show current fund state.
+- Create recovery proposal.
+- Approver confirms if needed.
+- Retry from stored state.
+
+======================================================================
+17. POLICY ENGINE
+======================================================================
+
+Fields:
+- Allowed source chains.
+- Allowed destination chains.
+- Allowed assets.
+- Recipient allowlist/blocklist.
+- Maximum amount.
+- Daily amount.
+- Max fee bps.
+- Max absolute fee.
+- Allowed transfer speeds.
+- Minimum route health score.
+- Allowed adapter.
+- Approval required.
+- Approval TTL.
+- Proposal TTL.
+- x402 max per call.
+- x402 max per task.
+- x402 daily budget.
+- Provider allowlist.
+- Emergency stop.
+- Require paid intelligence above threshold.
+- Require recovery approval.
+
+Evaluate at:
+1. Intent confirmation.
+2. Discovery.
+3. Proposal.
+4. Approval.
+5. Execution.
+6. Recovery.
+
+======================================================================
+18. ROUTE SCORING
+======================================================================
+
+Deterministic.
+
+Dimensions:
+- Safety/reliability.
+- Amount received.
+- Completion time.
+- Fee certainty.
+- Recovery complexity.
+- Data freshness.
+
+SAFETY:
+- Safety 50%.
+- Amount 20%.
+- Time 10%.
+- Fee certainty 10%.
+- Recovery 10%.
+
+BALANCED:
+- Safety 35%.
+- Amount 25%.
+- Time 20%.
+- Fee certainty 10%.
+- Recovery 10%.
+
+SPEED:
+- Time 45%.
+- Safety 25%.
+- Amount 15%.
+- Fee certainty 5%.
+- Recovery 10%.
+
+COST:
+- Amount 45%.
+- Safety 25%.
+- Time 10%.
+- Fee certainty 10%.
+- Recovery 10%.
+
+Use integer/fixed-point math.
+Store algorithm version and score components.
+
+======================================================================
+19. APPROVAL AND IMMUTABILITY
+======================================================================
+
+Proposal hash includes:
+- Proposal version.
+- Organization.
+- Treasury.
+- Intent.
+- DCW wallet reference.
+- Source address.
+- Recipient.
+- Source/destination.
+- Asset.
+- Amount.
+- Transfer speed.
+- Max fee.
+- Candidate.
+- Estimate hash.
+- Policy hash.
+- Expiry.
+- Adapter version.
+
+New proposal required if:
+- Amount berubah.
+- Recipient berubah.
+- Chain berubah.
+- Speed berubah.
+- Fee berubah.
+- Wallet berubah.
+- Estimate material berubah.
+- Proposal expired.
+- Policy blocks old proposal.
+
+======================================================================
+20. EXECUTION STATE MACHINE
+======================================================================
+
+DRAFT
+INTENT_CONFIRMED
+DISCOVERING
+RESEARCHING
+RANKED
+PROPOSAL_READY
+PROPOSAL_EXPIRED
+APPROVED
+REJECTED
+EXECUTION_QUEUED
+PREFLIGHT
+APPROVE_PENDING
+APPROVE_CONFIRMED
+BURN_PENDING
+BURN_CONFIRMED
+ATTESTATION_PENDING
+ATTESTATION_READY
+MINT_PENDING
+MINT_CONFIRMED
+COMPLETED
+RECOVERABLE
+MANUAL_REVIEW
+FAILED
+CANCELLED_BEFORE_SIDE_EFFECT
+
+Rules:
+- Valid transitions only.
+- Transactional state update.
+- Audit every financial transition.
+- One active execution per approved proposal.
+- Same execution lineage for recovery.
+- COMPLETED immutable.
+
+======================================================================
+21. DATA MODEL
+======================================================================
+
+Required tables:
+
+users
+organizations
+organization_members
+treasuries
+wallets
+policies
+route_intents
+route_discovery_runs
+route_candidates
+intelligence_providers
+intelligence_purchases
+route_health_reports
+policy_evaluations
+route_rankings
+agent_tasks
+agent_runs
+agent_tool_calls
+route_proposals
+approvals
+executions
+execution_steps
+bridge_recovery_attempts
+receipts
+audit_events
+provider_incidents
+
+Important:
+- Money stored as atomic string/integer.
+- No JavaScript floating point.
+- No private key.
+- No entity secret.
+- No hidden model chain-of-thought.
+- Store only structured recommendation and tool history.
+
+======================================================================
+22. API
+======================================================================
+
+Core endpoints:
+
+POST /v1/organizations
+POST /v1/treasuries
+GET  /v1/treasuries/:id/state
+GET  /v1/treasuries/:id/balances
+
+POST /v1/treasuries/:id/wallets/dcw
+POST /v1/treasuries/:id/wallets/agent/connect
+GET  /v1/wallets/:id/health
+
+GET  /v1/treasuries/:id/policies/active
+POST /v1/treasuries/:id/policies
+
+POST /v1/route-intents
+POST /v1/route-intents/:id/confirm
+POST /v1/route-intents/:id/discover
+GET  /v1/route-intents/:id/candidates
+GET  /v1/route-intents/:id/intelligence
+
+POST /v1/agent/tasks
+GET  /v1/agent/tasks/:id
+
+GET  /v1/proposals/:id
+POST /v1/proposals/:id/refresh
+POST /v1/proposals/:id/approve
+POST /v1/proposals/:id/reject
+
+GET  /v1/executions/:id
+POST /v1/executions/:id/recovery-proposal
+POST /v1/executions/:id/recover
+
+GET /v1/receipts/:id
+GET /v1/audit-events
+GET /v1/audit-export
+
+POST /v1/admin/emergency-stop
+POST /v1/admin/providers/:id/disable
+
+SSE:
+GET /v1/events/stream
+
+======================================================================
+23. WEB APPLICATION
+======================================================================
+
+Pages:
+
+/login
+/onboarding
+/dashboard
+/route/new
+/routes/:id
+/proposals
+/proposals/:id
+/approvals
+/executions/:id
+/history
+/settings/policy
+/settings/wallets
+/settings/members
+/settings/providers
+/settings/agent
+/settings/security
+
+UX:
+- Testnet/mainnet badge.
+- Exact amount and fee.
+- Agent explanation separate from deterministic result.
+- Proposal expiry visible.
+- Approval repeats recipient, amount, source, destination.
+- Partial failure explains current fund state.
+- No optimistic completed status.
+
+======================================================================
+24. SECURITY
+======================================================================
+
+Threats:
+- Prompt injection.
+- Arbitrary MCP.
+- Arbitrary CLI args.
+- Arbitrary URL payment.
+- Budget drain.
+- x402 paid but service failed.
+- Agent Wallet session theft.
+- DCW secret leak.
+- Cross-tenant access.
+- Approval replay.
+- Duplicate burn.
+- Quote expiry.
+- Malicious provider report.
+- SSRF.
+- False completion.
+
+Controls:
+- MCP allowlist.
+- No raw CLI tool.
+- execFile/spawn without shell.
+- CLI version pin.
+- x402 max amount.
+- Provider registry.
+- Signed report.
+- No unsafe retry.
+- Managed secret store.
+- Proposal hash.
+- Approval nonce/TTL.
+- Distributed lock.
+- Preflight.
+- State persistence.
+- Tenant authorization.
+- Encryption.
+- Secret redaction.
+
+======================================================================
+25. OBSERVABILITY
+======================================================================
+
+Logs:
+- Structured JSON.
+- Request ID.
+- Trace ID.
+- Organization.
+- Treasury.
+- Intent.
+- Proposal.
+- Execution.
+- Provider.
+- Error code.
+
+Metrics:
+- API latency.
+- Discovery time.
+- x402 payment count/spend.
+- Payment-after-submit failure.
+- Hermes tool calls/errors.
+- DCW latency.
+- Bridge completion.
+- Step duration.
+- Recovery count.
+- Duplicate prevention.
+- Fee estimate variance.
+
+Alerts:
+
+P0:
+- Duplicate value movement.
+- Proposal/approval mismatch.
+- DCW secret leak.
+- Cross-tenant access.
+- Mainnet execution while disabled.
+
+P1:
+- Burn confirmed but no progress.
+- Repeated mint failures.
+- Audit write failure.
+- DCW outage.
+- Database outage.
+
+P2:
+- Hermes outage.
+- x402 provider outage.
+- Queue backlog.
+- Circle CLI session expiry.
+- Low Agent Wallet/Gateway balance.
+
+======================================================================
+26. TESTING
+======================================================================
+
+Unit:
+- Money parsing.
+- Policy.
+- Score.
+- Proposal hash.
+- Approval nonce.
+- State machine.
+- CLI args.
+- x402 cap.
+- Signature.
+- Agent output validation.
+- Recovery classification.
+
+Real integration:
+- Agent Wallet login/status.
+- Agent Wallet balance.
+- x402 inspect/pay.
+- Gateway balance.
+- DCW wallet creation.
+- DCW balance.
+- App Kit estimate.
+- App Kit bridge.
+- Arc Testnet receipt.
+- Induced RPC failure recovery.
+
+E2E:
+1. Create org/treasury/DCW/policy.
+2. Confirm route intent.
+3. Hermes buys real route health report.
+4. Payment above cap rejected.
+5. FAST over fee causes SLOW selection.
+6. Invalid Hermes candidate rejected.
+7. Expired proposal rejected.
+8. Approval replay rejected.
+9. Real DCW bridge to Arc Testnet.
+10. Burn success + attestation failure becomes recoverable.
+11. Recovery without duplicate burn.
+12. Hermes offline fallback.
+13. Malicious report cannot trigger tool.
+14. Cross-tenant rejected.
+15. Emergency stop blocks execution.
+
+======================================================================
+27. DEPLOYMENT
+======================================================================
+
+Environments:
+- local
+- development
+- staging
+- production-testnet
+- production-mainnet
+
+Frontend:
+- Vercel or VPS.
+- No wallet secrets.
+
+Private VPS:
+- API.
+- Hermes.
+- MCP.
+- Workers.
+- Indexer.
+- Route health provider.
+
+Database:
+- Managed PostgreSQL preferred.
+
+Queue:
+- Redis/BullMQ or durable PostgreSQL queue.
+
+Secrets:
+- Managed secret store.
+- Separate environment.
+- No production secrets in preview.
+
+Circle CLI:
+- Dedicated host identity.
+- Persistent encrypted home volume.
+- Session health monitoring.
+- Re-authentication runbook.
+- No automatic Terms acceptance.
+
+======================================================================
+28. BUILD PLAN
+======================================================================
+
+PHASE 0 — REPOSITORY PRODUCTIONIZATION
+
+Implement:
+- Branch strategy.
+- Environment config.
+- Lint.
+- Typecheck.
+- Unit test.
+- CI.
+- Docker.
+- Secret scanning.
+- Dependency scanning.
+
+Exit:
+- Reproducible build.
+- Clean CI.
+- Containers build.
+
+PHASE 1 — DOMAIN, DATABASE, AUTH
+
+Implement:
+- Organization.
+- Membership.
+- RBAC.
+- Treasury.
+- Wallet records.
+- Policy versioning.
+- Audit.
+- Migrations.
+- Auth.
+
+Exit:
+- Tenant isolation.
+- Policy CRUD.
+- Audit event.
+
+PHASE 2 — CIRCLE TOOLS HARDENING
+
+Implement:
+- Chain registry.
+- Arc/testnet support.
+- Async CLI runner.
+- CLI version pin.
+- Typed errors.
+- Max payment.
+- Provider registry.
+- Gateway balance.
+- Bridge fee/status.
+- Health endpoint.
+
+Exit:
+- Real Circle CLI reads.
+- Real x402 payment.
+- No arbitrary CLI args.
+
+PHASE 3 — AGENT RESEARCH WALLET
+
+Implement:
+- Agent Wallet connection.
+- Session health.
+- Balance monitor.
+- Gateway monitor.
+- Low balance alert.
+- Task budget.
+- Payment receipt.
+
+Exit:
+- Real paid call.
+- Receipt stored.
+- Unsafe repeat blocked.
+
+PHASE 4 — DCW TREASURY
+
+Implement:
+- DCW client.
+- Wallet set.
+- Treasury wallet.
+- Balance.
+- Secret isolation.
+- Adapter.
+
+Exit:
+- Real Arc Testnet DCW.
+- Balance visible.
+- No secret leak.
+
+PHASE 5 — APP KIT BRIDGE
+
+Implement:
+- Circle Wallet adapter.
+- Bridge Kit.
+- FAST estimate.
+- SLOW estimate.
+- Max fee.
+- Recipient.
+- Normalized result.
+- State persistence.
+- Retry.
+
+Exit:
+- Real bridge to Arc Testnet.
+- Steps/tx hashes stored.
+- Recovery test.
+
+PHASE 6 — ROUTE ENGINE
+
+Implement:
+- Intent.
+- Candidate discovery.
+- Policy filter.
+- Scoring.
+- TTL.
+- Proposal builder.
+
+Exit:
+- Deterministic proposal without Hermes.
+- No fake candidate.
+
+PHASE 7 — REAL x402 ROUTE HEALTH PROVIDER
+
+Implement:
+- Real telemetry.
+- Health scoring.
+- Signed report.
+- x402 seller middleware.
+- Provider registry.
+- Purchase/verify client.
+
+Exit:
+- Report bought with real payment.
+- Report affects policy/score.
+- Unknown data handled honestly.
+
+PHASE 8 — HERMES + MCP
+
+Implement:
+- Hermes VPS.
+- Private MCP.
+- Allowlist.
+- Scoped token.
+- Task orchestration.
+- Structured output.
+- Fallback.
+
+Exit:
+- Hermes creates proposal.
+- Hermes cannot execute.
+- Injection test passes.
+
+PHASE 9 — WEB APPROVAL AND EXECUTION
+
+Implement:
+- Proposal screen.
+- Approval.
+- Hash binding.
+- Execution queue.
+- Timeline.
+- SSE.
+- Receipt.
+
+Exit:
+- End-to-end web to real bridge.
+
+PHASE 10 — HARDENING
+
+Implement:
+- Rate limits.
+- Observability.
+- Alerts.
+- Backup/restore.
+- Incident runbooks.
+- Security tests.
+- Load tests.
+- SLO dashboards.
+
+Exit:
+- Production-testnet gate passes.
+
+PHASE 11 — MAINNET PREPARATION
+
+Implement/review:
+- Mainnet chain matrix.
+- Wallet limits.
+- MFA.
+- Mainnet DCW.
+- Legal/custody review.
+- Low caps.
+- Recipient allowlist.
+- Staged rollout.
+
+======================================================================
+29. FILES AND MODULES TO CREATE
+======================================================================
+
+apps/web:
+- app/(auth)/
+- app/dashboard/
+- app/route/new/
+- app/routes/[id]/
+- app/proposals/[id]/
+- app/approvals/
+- app/executions/[id]/
+- app/history/
+- app/settings/
+- lib/api-client.ts
+- lib/sse.ts
+- middleware.ts
+
+apps/api:
+- src/server.ts
+- src/routes/organizations.ts
+- src/routes/treasuries.ts
+- src/routes/wallets.ts
+- src/routes/policies.ts
+- src/routes/route-intents.ts
+- src/routes/agent-tasks.ts
+- src/routes/proposals.ts
+- src/routes/approvals.ts
+- src/routes/executions.ts
+- src/routes/receipts.ts
+- src/routes/audit.ts
+- src/middleware/auth.ts
+- src/middleware/tenant.ts
+- src/middleware/idempotency.ts
+- src/middleware/request-context.ts
+- src/middleware/rate-limit.ts
+
+services/mcp:
+- src/server.ts
+- src/auth.ts
+- src/context.ts
+- src/tools/get-treasury-state.ts
+- src/tools/get-treasury-policy.ts
+- src/tools/get-route-intent.ts
+- src/tools/discover-route-candidates.ts
+- src/tools/purchase-route-intelligence.ts
+- src/tools/simulate-route-candidates.ts
+- src/tools/get-ranked-route-candidates.ts
+- src/tools/create-route-proposal.ts
+- src/tools/get-route-proposal.ts
+- src/tools/get-execution-status.ts
+
+services/hermes-gateway:
+- Dockerfile
+- config/config.yaml
+- config/system-prompt.txt
+- scripts/health-check.sh
+- README.md
+
+services/route-worker:
+- src/worker.ts
+- src/jobs/discover.ts
+- src/jobs/research.ts
+- src/jobs/rank.ts
+- src/jobs/propose.ts
+
+services/execution-worker:
+- src/worker.ts
+- src/jobs/preflight.ts
+- src/jobs/execute-bridge.ts
+- src/jobs/recover-bridge.ts
+- src/state-machine.ts
+- src/locks.ts
+
+services/indexer:
+- src/worker.ts
+- src/rpc-monitor.ts
+- src/execution-monitor.ts
+- src/provider-monitor.ts
+
+services/route-health-provider:
+- src/server.ts
+- src/telemetry/source-rpc.ts
+- src/telemetry/destination-rpc.ts
+- src/telemetry/bridge-fee.ts
+- src/telemetry/execution-history.ts
+- src/scoring.ts
+- src/signing.ts
+- src/x402-middleware.ts
+
+packages/circle-tools:
+- src/cli-async.ts
+- src/chain-registry.ts
+- src/bridge.ts
+- src/provider-registry.ts
+- update services.ts
+- update gateway.ts
+- update index.ts
+
+packages/domain:
+- entities
+- value-objects/money.ts
+- value-objects/address.ts
+- enums
+- state-machines
+- errors
+
+packages/database:
+- schema
+- migrations
+- repositories
+- transactions
+- tenant-context
+
+packages/auth:
+- RBAC
+- permissions
+- OIDC
+- service-tokens
+
+packages/policy-engine:
+- schema
+- evaluator
+- versioning
+- reasons
+
+packages/route-engine:
+- discovery
+- normalization
+- eligibility
+- scoring
+- plan-builder
+- hashing
+
+packages/agent-orchestrator:
+- interface
+- Hermes adapter
+- deterministic fallback
+- output validator
+
+packages/mcp-contracts:
+- tool schemas
+- result schemas
+- version
+
+packages/x402-client:
+- provider validation
+- payment cap
+- receipt
+- retry classification
+
+packages/x402-provider:
+- seller middleware
+- signed report
+- payment logging
+
+packages/agent-wallet-adapter:
+- Circle CLI session
+- balance
+- services
+- Gateway read
+- payment
+
+packages/dcw-wallet-adapter:
+- client
+- wallet sets
+- wallets
+- balances
+- signer context
+- health
+
+packages/bridge-adapter:
+- App Kit setup
+- estimate
+- candidate builder
+- execute
+- retry
+- normalize result
+
+packages/provider-registry:
+- config
+- validation
+- health
+- incident
+
+packages/observability:
+- logger
+- tracing
+- metrics
+- redaction
+
+packages/config:
+- environment schema
+- feature flags
+- chain config
+- provider config
+
+docs:
+- architecture.md
+- threat-model.md
+- wallet-custody.md
+- mcp-tools.md
+- x402-payment-safety.md
+- bridge-recovery.md
+- incident-response.md
+- mainnet-launch.md
+
+======================================================================
+30. ACCEPTANCE CRITERIA
+======================================================================
+
+P0:
+
+1. No deployed mock wallet, balance, quote, tx, receipt, atau bridge status.
+2. Circle CLI pinned dan verified.
+3. Hermes hanya melihat allowlisted tools.
+4. Hermes tidak bisa call DCW/bridge execution.
+5. Agent Wallet membayar real x402 service dengan max amount.
+6. Receipt dan report hash tersimpan.
+7. Paid-but-failed tidak auto-repay.
+8. DCW dibuat di Arc Testnet melalui real Circle SDK.
+9. Entity secret tidak ada di browser/Hermes/MCP/log/database.
+10. App Kit menghasilkan real route estimate.
+11. FAST/SLOW hanya tampil bila supported.
+12. Policy dapat reject real candidate.
+13. Scoring deterministic/versioned.
+14. Hermes hanya dapat memilih valid candidate.
+15. Proposal immutable dan hashed.
+16. Approval role-checked, nonce-bound, expiring, one-time.
+17. Execution revalidates policy/proposal.
+18. Bridge nyata via DCW/CCTP/App Kit.
+19. Approve/burn/attestation/mint dipersist.
+20. Duplicate execution tidak duplicate value movement.
+21. Recovery tanpa duplicate burn.
+22. Receipt punya actual tx hashes.
+23. Cross-tenant access ditolak.
+24. Emergency stop bekerja.
+25. Hermes outage tidak memblok manual deterministic flow.
+26. Backup restore berhasil.
+27. Audit export lengkap.
+28. Production testnet punya monitoring/alerts.
+
+======================================================================
+31. DEFINITION OF DONE
+======================================================================
+
+Feature dianggap done bila:
+- Functional requirement implemented.
+- Real integration tested.
+- No mock in deployed flow.
+- Authorization implemented.
+- Tenant isolation reviewed.
+- Policy impact reviewed.
+- Audit event added.
+- Metrics/logs added.
+- Error classification added.
+- Idempotency reviewed.
+- Recovery reviewed.
+- Unit test.
+- Integration test.
+- Security test bila relevan.
+- Documentation updated.
+- Runbook updated.
+- Staging verified.
+- Secrets review passed.
+
+======================================================================
+32. LAUNCH GATES
+======================================================================
+
+Production testnet:
+- Semua P0 pass.
+- No critical finding.
+- Real x402 service.
+- Real DCW.
+- Real Arc bridge.
+- Recovery tested.
+- Backup restored.
+- Monitoring enabled.
+- Runbook ready.
+
+Private mainnet pilot:
+- Current supported mainnet chain pair confirmed.
+- External security review.
+- Custody/legal review.
+- MFA.
+- Transaction cap.
+- Daily cap.
+- Recipient allowlist.
+- Provider allowlist.
+- Mainnet wallet separation.
+- Emergency stop drill.
+- On-call.
+- Small funded wallet.
+- Invited organizations only.
+
+======================================================================
+33. FINAL GOAL STATEMENT
+======================================================================
+
+Archon Treasury MVP selesai bukan ketika chatbot dapat berkata bahwa ia menemukan
+route.
+
+Archon Treasury MVP selesai ketika sistem dapat membuktikan:
+
+1. User membuat treasury intent.
+2. Intent dinormalisasi dan dikonfirmasi.
+3. Hermes membeli intelligence nyata dengan USDC melalui x402.
+4. Backend memvalidasi intelligence dan membuat deterministic score.
+5. Hermes merekomendasikan hanya valid candidate.
+6. Backend membuat immutable proposal.
+7. Human menyetujui proposal spesifik.
+8. Execution worker menggerakkan USDC nyata dari DCW melalui CCTP/App Kit.
+9. Sistem menyimpan approve, burn, attestation, dan mint.
+10. Sistem pulih dari partial failure tanpa menggandakan transaction.
+11. User menerima receipt dan audit evidence lengkap.
+12. Hermes tidak pernah dapat memindahkan treasury funds.
+
+Itulah production-ready MVP Archon Treasury.
+
+======================================================================
+END OF DOCUMENT
+======================================================================
+
+######################################################################
+PART II
+FUTURE-FINAL PRODUCT AND PLATFORM ARCHITECTURE
+######################################################################
+
+======================================================================
+34. PURPOSE OF THE FUTURE-FINAL SPECIFICATION
+======================================================================
+
+Bagian ini mendefinisikan target akhir Archon Treasury setelah production-ready
+MVP berhasil.
+
+Target akhir tidak berarti semua fitur harus dibangun sekaligus.
+
+Dokumen ini berfungsi sebagai:
+
+- north-star product architecture;
+- batas tanggung jawab setiap service;
+- aturan yang tidak boleh dilanggar oleh coding agent;
+- panduan pemecahan pekerjaan menjadi pull request kecil;
+- kontrak evolusi dari MVP menuju platform multi-tenant;
+- referensi untuk reviewer, operator, security engineer, dan future contributor.
+
+Prinsip implementasi:
+
+1. Setiap pull request harus tetap membawa sistem menuju arsitektur final.
+2. MVP tidak boleh membangun shortcut yang harus dibuang total.
+3. Fitur future boleh belum aktif, tetapi boundary dan data model-nya harus
+   mempertimbangkan evolusi.
+4. Tidak boleh menambahkan service hanya karena terlihat enterprise.
+5. Mulai modular monolith, pisahkan service berdasarkan risiko dan scaling
+   nyata.
+6. Execution dan custody boundary harus benar sejak awal.
+7. Agent interface tidak boleh menjadi bypass terhadap API security.
+8. Public MCP bukan remote shell dan bukan wallet signer.
+9. Semua jalur uang harus memakai policy, approval, idempotency, dan audit.
+10. Tidak ada mock pada deployed financial path.
+
+Dokumen ini supersedes dokumen v2 sebagai north-star.
+
+Bagian production-ready MVP sebelumnya tetap berlaku sebagai delivery stage
+pertama.
+
+======================================================================
+35. FUTURE-FINAL PRODUCT VISION
+======================================================================
+
+Archon Treasury menjadi programmable treasury control plane untuk stablecoin
+operations.
+
+Platform memungkinkan:
+
+- human operator;
+- internal AI agent;
+- customer-owned AI agent;
+- customer backend;
+- scheduled automation;
+- policy-approved workflow;
+
+untuk meminta operasi treasury melalui satu control plane yang sama.
+
+Platform bertanggung jawab atas:
+
+- tenant isolation;
+- identity;
+- wallet inventory;
+- balance aggregation;
+- route discovery;
+- paid intelligence;
+- policy;
+- simulation;
+- proposal;
+- approval;
+- deterministic execution;
+- recovery;
+- reconciliation;
+- receipt;
+- audit;
+- webhook/event delivery.
+
+Future-final positioning:
+
+"Archon Treasury is the policy and execution control plane for programmable
+stablecoin treasury operations."
+
+Future-final product categories:
+
+- Treasury orchestration.
+- Stablecoin routing.
+- Agent financial infrastructure.
+- Crosschain settlement operations.
+- Policy-controlled wallet automation.
+- Verifiable transaction execution.
+
+Archon Treasury tidak berubah menjadi:
+
+- consumer wallet;
+- general-purpose crypto exchange;
+- unrestricted smart-contract agent;
+- generic chatbot platform;
+- custody bank;
+- permissionless bridge;
+- speculative trading system;
+- autonomous fund manager.
+
+======================================================================
+36. FUTURE-FINAL USER AND INTEGRATION CHANNELS
+======================================================================
+
+Archon Treasury memiliki empat channel resmi.
+
+36.1 HUMAN WEB APPLICATION
+
+Digunakan oleh:
+- organization admin;
+- treasury operator;
+- approver;
+- auditor;
+- security operator.
+
+Kemampuan:
+- organization setup;
+- wallet onboarding;
+- policy configuration;
+- route intent;
+- approval;
+- execution monitoring;
+- receipt;
+- audit;
+- emergency operation.
+
+Human web app memanggil Public API.
+
+Web app tidak:
+- memanggil Circle DCW secara langsung;
+- memanggil chain RPC untuk menentukan authoritative state;
+- menyimpan wallet secret;
+- memanggil private MCP;
+- menandai transaction completed secara lokal.
+
+36.2 CUSTOMER PUBLIC API
+
+Digunakan oleh:
+- customer backend;
+- enterprise integration;
+- workflow engine;
+- scheduled job;
+- internal treasury system.
+
+Kemampuan:
+- create intent;
+- list treasury state;
+- request discovery;
+- create proposal;
+- inspect proposal;
+- request approval workflow;
+- read execution;
+- read receipts;
+- register webhooks.
+
+API authentication:
+- OAuth 2.1/OIDC for interactive apps;
+- service accounts for server-to-server;
+- short-lived access token;
+- scoped permissions;
+- optional mTLS for enterprise;
+- signed webhook verification.
+
+Public API tidak menyediakan arbitrary transaction execution.
+
+36.3 INTERNAL PRIVATE MCP
+
+Digunakan oleh:
+- Hermes milik Archon Treasury.
+
+Tujuan:
+- internal agent orchestration;
+- route research;
+- paid intelligence;
+- explanation;
+- proposal creation;
+- status lookup.
+
+Private MCP hanya dapat diakses dari private network atau authenticated service
+mesh.
+
+Private MCP token bound ke:
+- service identity;
+- organization;
+- treasury;
+- agent task;
+- scopes;
+- expiry.
+
+36.4 EXTERNAL PUBLIC SCOPED MCP GATEWAY
+
+Digunakan oleh:
+- customer-owned agent;
+- customer AI assistant;
+- third-party approved automation;
+- enterprise agent framework.
+
+Tujuan:
+- memberi customer agent interface standar;
+- tidak memaksa customer membuat REST adapter sendiri;
+- memungkinkan natural-language treasury orchestration;
+- menjaga control plane yang sama.
+
+External agent dapat:
+- read treasury state;
+- read policy summary;
+- create draft intent;
+- request discovery;
+- inspect candidates;
+- request proposal creation;
+- inspect approval status;
+- inspect execution status;
+- retrieve receipt metadata.
+
+External agent tidak dapat:
+- create treasury wallet without admin authorization;
+- retrieve secrets;
+- approve proposal;
+- execute bridge directly;
+- call raw wallet operation;
+- call arbitrary Circle command;
+- change policy;
+- add member;
+- disable audit;
+- bypass recipient rules;
+- retry ambiguous transaction automatically.
+
+36.5 CORE RULE
+
+Web, REST API, private MCP, dan public MCP adalah interface berbeda menuju
+application services yang sama.
+
+Tidak boleh ada business logic financial yang hanya hidup di MCP tool.
+
+Tidak boleh ada execution path khusus agent yang melewati:
+
+- authentication;
+- tenant authorization;
+- policy;
+- proposal;
+- approval;
+- execution state machine;
+- audit.
+
+======================================================================
+37. FUTURE-FINAL IDENTITY MODEL
+======================================================================
+
+37.1 PRINCIPALS
+
+Principal types:
+
+- HUMAN_USER;
+- SERVICE_ACCOUNT;
+- INTERNAL_AGENT;
+- EXTERNAL_AGENT;
+- SYSTEM_WORKER;
+- SECURITY_OPERATOR;
+- WEBHOOK_CONSUMER.
+
+Setiap request memiliki PrincipalContext:
+
+{
+  "principalType": "EXTERNAL_AGENT",
+  "principalId": "uuid",
+  "organizationId": "uuid",
+  "scopes": [
+    "treasury:read",
+    "route:create",
+    "proposal:create"
+  ],
+  "sessionId": "uuid",
+  "agentTaskId": "uuid-or-null",
+  "requestId": "uuid",
+  "traceId": "string",
+  "expiresAt": "ISO-8601"
+}
+
+37.2 USER AUTHENTICATION
+
+Support:
+- OIDC;
+- email/passwordless via trusted auth provider;
+- enterprise SSO;
+- MFA;
+- reauthentication for approval.
+
+37.3 SERVICE ACCOUNT
+
+Service account:
+- belongs to one organization;
+- has explicit scopes;
+- supports key rotation;
+- may have IP/mTLS restriction;
+- cannot receive human approval role;
+- can be disabled immediately.
+
+Credentials:
+- client ID;
+- hashed client secret or asymmetric key;
+- no permanent bearer token stored in plaintext.
+
+37.4 AGENT IDENTITY
+
+Agent identity is not equivalent to user identity.
+
+Agent record:
+- organization owner;
+- agent type;
+- runtime;
+- allowed treasury IDs;
+- allowed MCP tools;
+- allowed API scopes;
+- maximum x402 budget;
+- maximum task duration;
+- environment;
+- status.
+
+External agent authorization must not inherit all permissions from the human who
+created it.
+
+37.5 DELEGATION
+
+Human may delegate:
+- create intent;
+- perform research;
+- create proposal;
+- monitor execution.
+
+Human may not delegate through basic agent token:
+- approve financial movement;
+- manage secrets;
+- disable emergency stop;
+- expand its own scopes.
+
+Future enterprise delegation may use signed authorization grants with:
+- exact action;
+- exact amount cap;
+- exact treasury;
+- exact recipient set;
+- expiry;
+- revocation;
+- nonce.
+
+======================================================================
+38. FUTURE-FINAL WALLET ARCHITECTURE
+======================================================================
+
+38.1 WALLET PURPOSES
+
+Wallet purpose values:
+
+- TREASURY;
+- AGENT_RESEARCH;
+- GAS_SPONSOR;
+- SETTLEMENT;
+- FEE_COLLECTION;
+- RECOVERY;
+- CUSTOMER_EXTERNAL;
+- READ_ONLY_TRACKED.
+
+38.2 CUSTODY MODES
+
+Archon Treasury supports adapters for multiple custody modes.
+
+Mode A:
+PLATFORM_ORCHESTRATED_DCW
+
+- Circle Developer-Controlled Wallet.
+- Archon execution worker owns API access.
+- Customer owns organization policy and approvals.
+- Secrets remain in managed secret store.
+
+Mode B:
+CUSTOMER_MANAGED_WALLET
+
+- Customer uses supported external wallet/custodian.
+- Archon builds approved execution payload.
+- Customer signer or custodian executes.
+- Archon tracks status and reconciles.
+
+Mode C:
+CUSTOMER_HOSTED_SIGNER
+
+- Signer runs in customer environment.
+- Archon sends signed execution authorization request.
+- Customer service validates proposal hash.
+- Customer service signs or rejects.
+
+Mode D:
+READ_ONLY_TREASURY
+
+- Archon tracks addresses.
+- No execution.
+- Route recommendations and proposal export only.
+
+MVP implements Mode A.
+
+Future architecture must use wallet adapter interfaces so Mode B-D can be added
+without changing route/proposal domain.
+
+38.3 WALLET CONTROL RULE
+
+No interface may expose:
+
+executeRawTransaction(calldata)
+sendArbitraryTransaction(...)
+runWalletCommand(args)
+signAnyMessage(...)
+
+Application-level commands only:
+
+- executeApprovedBridge;
+- executeApprovedTransfer;
+- executeApprovedGatewayFunding;
+- executeApprovedRecovery;
+- getBalance;
+- getTransactionStatus.
+
+38.4 WALLET OWNERSHIP
+
+Wallet belongs to:
+- organization;
+- treasury;
+- environment;
+- custody account;
+- wallet purpose.
+
+Wallet address alone is not sufficient identity.
+
+38.5 WALLET INVENTORY
+
+Future UI/API shows:
+- wallet provider;
+- purpose;
+- chain;
+- account type;
+- address;
+- status;
+- balance;
+- pending outgoing amount;
+- policy assignment;
+- last synchronized time;
+- health;
+- custody mode.
+
+38.6 WALLET LIFECYCLE
+
+States:
+- REQUESTED;
+- PROVISIONING;
+- ACTIVE;
+- SUSPENDED;
+- READ_ONLY;
+- ROTATING;
+- DECOMMISSIONING;
+- DECOMMISSIONED;
+- ERROR.
+
+Wallet deletion is not physical deletion.
+Records and audit lineage remain.
+
+======================================================================
+39. FUTURE-FINAL TREASURY MODEL
+======================================================================
+
+Organization:
+Top-level tenant.
+
+Treasury:
+Logical pool of assets and policies.
+
+Treasury account:
+Accounting grouping within treasury.
+
+Wallet:
+Execution or tracked address.
+
+Position:
+Asset balance at wallet/chain.
+
+Reserved balance:
+Amount committed to approved or active execution.
+
+Available balance:
+Observed balance minus valid reservations.
+
+Future hierarchy:
+
+Organization
+  |
+  +-- Treasury
+       |
+       +-- Treasury Account
+       |    |
+       |    +-- Wallet
+       |    +-- Position
+       |
+       +-- Policy Set
+       +-- Approval Policy
+       +-- Routing Profile
+       +-- Agent Configuration
+
+Examples of treasury accounts:
+- Operations.
+- Payroll.
+- Protocol liquidity.
+- Settlement.
+- Emergency reserve.
+- Agent research budget.
+
+Accounting rule:
+Observed blockchain balance is not equal to available spendable balance.
+
+Available amount must subtract:
+- pending approved execution;
+- in-flight bridge;
+- gas reservation;
+- provider fee reservation;
+- compliance hold;
+- manual hold.
+
+======================================================================
+40. FUTURE-FINAL OPERATION MODEL
+======================================================================
+
+Archon Treasury generalizes route intent into TreasuryOperationIntent.
+
+Operation types:
+
+MVP:
+- CROSSCHAIN_USDC_TRANSFER.
+
+Future:
+- SAME_CHAIN_USDC_TRANSFER;
+- TREASURY_REBALANCE;
+- GATEWAY_FUNDING;
+- BATCH_TRANSFER;
+- SCHEDULED_TRANSFER;
+- POLICY_TRIGGERED_REBALANCE;
+- SWAP_THEN_TRANSFER;
+- FIAT_SETTLEMENT_REQUEST;
+- CUSTOM_SUPPORTED_WORKFLOW.
+
+Each operation uses the same lifecycle:
+
+1. Draft intent.
+2. Confirmed intent.
+3. Discovery.
+4. Intelligence.
+5. Eligibility.
+6. Simulation.
+7. Candidate ranking.
+8. Proposal.
+9. Approval.
+10. Execution.
+11. Monitoring.
+12. Reconciliation.
+13. Receipt.
+14. Audit.
+
+Do not implement operation-specific bypasses.
+
+======================================================================
+41. FUTURE-FINAL ROUTING ARCHITECTURE
+======================================================================
+
+41.1 PROVIDER ABSTRACTION
+
+Route providers may include:
+- Circle CCTP/App Kit;
+- Circle Gateway;
+- future approved bridge;
+- future approved exchange/RFQ;
+- customer-owned internal liquidity;
+- same-chain transfer rail.
+
+Every provider implements:
+
+interface RouteProviderAdapter {
+  getCapabilities(): Promise<ProviderCapabilities>;
+  estimate(input: EstimateInput): Promise<RouteEstimate[]>;
+  simulate(input: SimulationInput): Promise<SimulationResult>;
+  execute(input: ApprovedExecutionPlan): Promise<ExecutionStartResult>;
+  inspect(input: ProviderInspectionInput): Promise<ProviderExecutionState>;
+  recover(input: RecoveryInput): Promise<RecoveryResult>;
+  healthCheck(): Promise<ProviderHealth>;
+}
+
+41.2 PROVIDER CAPABILITY REGISTRY
+
+Capabilities include:
+- supported assets;
+- source chains;
+- destination chains;
+- min/max amount;
+- settlement modes;
+- custody requirements;
+- fee model;
+- recovery support;
+- idempotency support;
+- compliance capabilities;
+- expected confirmation model.
+
+Provider registration is administrative.
+Agent cannot register a provider.
+
+41.3 ROUTE CANDIDATE
+
+Future RouteCandidate contains:
+
+- operation type;
+- provider;
+- provider version;
+- source wallet;
+- destination;
+- asset in;
+- asset out;
+- amount in;
+- expected amount out;
+- minimum amount out;
+- fees;
+- estimated duration;
+- settlement mode;
+- required approvals;
+- simulation result;
+- risk report;
+- data freshness;
+- provider health;
+- recovery model;
+- policy evaluation;
+- score;
+- expiration.
+
+41.4 NO FAKE COMPETITION
+
+If only Circle CCTP is integrated:
+- only Circle CCTP candidates are shown;
+- Fast and Standard may be separate candidates when real.
+
+Do not represent configuration variants as independent providers unless the user
+can actually choose and execute them.
+
+41.5 ROUTE INTELLIGENCE
+
+Paid or internal intelligence can influence:
+- eligibility;
+- safety score;
+- provider health;
+- timing score;
+- fee confidence;
+- compliance decision.
+
+Intelligence cannot override hard policy.
+
+======================================================================
+42. FUTURE-FINAL x402 ECOSYSTEM
+======================================================================
+
+42.1 BUYER ROLE
+
+Archon Treasury can buy:
+- route health;
+- sanctions screening;
+- wallet risk;
+- bridge incident data;
+- liquidity intelligence;
+- fee forecast;
+- transaction monitoring;
+- accounting classification.
+
+42.2 SELLER ROLE
+
+Archon Treasury can expose paid services:
+- Route Health API.
+- Execution Status Attestation API.
+- Historical Route Reliability API.
+- Policy Simulation API.
+- Signed Treasury Receipt Verification API.
+
+42.3 PROVIDER MARKETPLACE
+
+Future provider marketplace is curated, not permissionless at first.
+
+Provider onboarding:
+- identity review;
+- endpoint verification;
+- schema validation;
+- price cap;
+- signing key;
+- terms;
+- uptime observation;
+- security review;
+- incident process.
+
+Provider states:
+- PENDING;
+- TESTING;
+- ACTIVE;
+- DEGRADED;
+- SUSPENDED;
+- REMOVED.
+
+42.4 PAYMENT SAFETY
+
+Every x402 purchase requires:
+- organization;
+- agent task;
+- reason;
+- provider;
+- service;
+- maximum amount;
+- daily budget;
+- request hash;
+- idempotency classification;
+- payment receipt;
+- response validation;
+- audit.
+
+No automatic repayment after ambiguous submission.
+
+42.5 AGENT RESEARCH BUDGET
+
+Budget layers:
+- per tool call;
+- per provider;
+- per task;
+- per treasury;
+- per organization;
+- daily;
+- monthly.
+
+Budget exhaustion:
+- agent receives structured error;
+- deterministic route can continue without optional data if policy permits;
+- user may approve budget increase through admin flow.
+
+======================================================================
+43. FUTURE-FINAL POLICY ENGINE
+======================================================================
+
+43.1 POLICY TYPES
+
+- TREASURY_POLICY;
+- WALLET_POLICY;
+- OPERATION_POLICY;
+- ROUTE_POLICY;
+- PROVIDER_POLICY;
+- AGENT_POLICY;
+- X402_BUDGET_POLICY;
+- APPROVAL_POLICY;
+- RECOVERY_POLICY;
+- ENVIRONMENT_POLICY.
+
+43.2 POLICY LANGUAGE
+
+MVP:
+Typed JSON schema with deterministic evaluator.
+
+Future:
+Versioned policy DSL compiled to deterministic rules.
+
+Example conceptual policy:
+
+allow CROSSCHAIN_USDC_TRANSFER
+when
+  source_chain in ["ETHEREUM", "BASE"] and
+  destination_chain == "ARC" and
+  asset == "USDC" and
+  amount <= 100000 USDC and
+  recipient in approved_recipients and
+  route.risk_score >= 85 and
+  route.max_fee_bps <= 20
+require
+  approvals("TREASURY_APPROVER", 2)
+deny
+  when emergency_stop == true
+
+43.3 POLICY OUTPUT
+
+Policy evaluation returns:
+- PASS;
+- FAIL;
+- REQUIRE_ACTION;
+- REQUIRE_APPROVAL;
+- REQUIRE_DATA;
+- MANUAL_REVIEW.
+
+Output includes:
+- rule IDs;
+- reasons;
+- policy version;
+- input hash;
+- evaluatedAt;
+- evidence references.
+
+43.4 POLICY SAFETY
+
+No LLM-generated policy becomes active directly.
+
+Flow:
+1. Agent may draft policy suggestion.
+2. Typed parser validates.
+3. Human admin reviews.
+4. Simulation runs against historical cases.
+5. Explicit publish.
+6. New immutable policy version.
+7. Audit record.
+
+======================================================================
+44. FUTURE-FINAL APPROVAL ENGINE
+======================================================================
+
+44.1 APPROVAL MODES
+
+MVP:
+One authorized human approval.
+
+Future:
+- single approver;
+- role quorum;
+- sequential approval;
+- parallel approval;
+- amount-based threshold;
+- risk-based threshold;
+- recovery approval;
+- external custodian approval;
+- customer signer approval.
+
+44.2 APPROVAL PLAN
+
+Proposal includes ApprovalPlan:
+
+{
+  "mode": "QUORUM",
+  "requirements": [
+    {
+      "role": "TREASURY_APPROVER",
+      "count": 2
+    },
+    {
+      "role": "SECURITY_APPROVER",
+      "count": 1,
+      "when": "riskScore < 90"
+    }
+  ],
+  "expiresAt": "ISO-8601"
+}
+
+44.3 APPROVAL SECURITY
+
+- Proposal hash binding.
+- Approval plan hash binding.
+- Nonce.
+- One-time use.
+- Reauthentication.
+- MFA.
+- Optional WebAuthn.
+- Device/session evidence.
+- Revocation before side effect.
+- No agent approval by default.
+
+44.4 PRE-APPROVED AUTOMATION
+
+Future controlled automation may execute without per-operation human click only
+when an explicit standing authorization exists.
+
+Standing authorization contains:
+- operation type;
+- treasury;
+- amount cap;
+- daily cap;
+- recipient allowlist;
+- chain pair;
+- route risk floor;
+- provider allowlist;
+- validity period;
+- revocation;
+- approver signatures.
+
+Agent does not create its own standing authorization.
+
+======================================================================
+45. PUBLIC MCP GATEWAY DESIGN
+======================================================================
+
+45.1 PURPOSE
+
+Public MCP gives external agents a controlled protocol-native interface.
+
+It is not the authoritative application boundary.
+It maps tools to the same application commands used by REST API.
+
+45.2 DEPLOYMENT
+
+Separate service:
+services/public-mcp-gateway
+
+Reasons:
+- different rate limits;
+- agent-specific auth;
+- payload controls;
+- tool discovery;
+- protocol versioning;
+- independent disable switch;
+- protection from malformed agent traffic.
+
+45.3 AUTH
+
+Supported:
+- OAuth dynamic client registration in future;
+- pre-registered agent client;
+- service account exchange;
+- short-lived MCP token;
+- optional mTLS.
+
+Token claims:
+- organization;
+- agent ID;
+- treasury IDs;
+- tool scopes;
+- budget;
+- expiry;
+- environment;
+- session nonce.
+
+45.4 PUBLIC MCP TOOLS V1
+
+Read:
+- archon_list_treasuries;
+- archon_get_treasury_state;
+- archon_get_policy_summary;
+- archon_get_route_intent;
+- archon_get_route_candidates;
+- archon_get_proposal;
+- archon_get_approval_status;
+- archon_get_execution_status;
+- archon_get_receipt.
+
+Write-safe:
+- archon_create_route_intent_draft;
+- archon_confirm_route_intent;
+- archon_request_route_discovery;
+- archon_request_intelligence;
+- archon_create_route_proposal;
+- archon_cancel_draft_intent.
+
+Confirm intent rules:
+A customer can configure whether agent confirmation is allowed.
+Default:
+Human confirms amount, recipient, and chains.
+
+45.5 PUBLIC MCP TOOLS NOT PROVIDED
+
+- archon_create_wallet;
+- archon_export_wallet;
+- archon_sign_transaction;
+- archon_send_transaction;
+- archon_execute_bridge;
+- archon_approve_proposal;
+- archon_change_policy;
+- archon_add_member;
+- archon_raise_own_budget;
+- archon_disable_emergency_stop;
+- archon_run_cli;
+- archon_fetch_url;
+- archon_execute_sql.
+
+45.6 TOOL RESPONSE DESIGN
+
+Responses:
+- typed;
+- bounded;
+- no secrets;
+- no raw internal stack trace;
+- include stable error code;
+- include request ID;
+- include next valid actions;
+- distinguish user action required from retryable system error.
+
+45.7 EXTERNAL AGENT EXPERIENCE
+
+Example:
+
+Customer Agent:
+"Move 10,000 USDC to Arc if risk is above 90."
+
+1. Calls create draft.
+2. Receives draft and missing recipient.
+3. Customer provides recipient.
+4. Calls confirm or requests human confirmation.
+5. Calls discovery.
+6. Reads candidates.
+7. Calls create proposal.
+8. Receives APPROVAL_REQUIRED.
+9. Human approves in Archon web.
+10. Agent monitors execution.
+11. Agent retrieves receipt.
+
+The agent never calls execute.
+
+======================================================================
+46. INTERNAL AGENT ORCHESTRATION
+======================================================================
+
+46.1 AGENT ABSTRACTION
+
+Create interface:
+
+interface AgentOrchestrator {
+  parseIntent(input): Promise<ParsedIntent>;
+  researchRoute(input): Promise<AgentResearchResult>;
+  recommend(input): Promise<AgentRecommendation>;
+  summarizeExecution(input): Promise<ExecutionSummary>;
+  healthCheck(): Promise<AgentHealth>;
+}
+
+Hermes is first adapter.
+
+Future adapters:
+- customer-selected model;
+- hosted enterprise model;
+- deterministic no-agent mode.
+
+46.2 AGENT TASK STATE
+
+CREATED
+AUTHORIZED
+RUNNING
+WAITING_FOR_TOOL
+WAITING_FOR_HUMAN
+COMPLETED
+FAILED
+CANCELLED
+BUDGET_EXHAUSTED
+TIMED_OUT
+
+46.3 MEMORY
+
+Agent does not use unrestricted long-term memory for financial authority.
+
+Persist:
+- structured task context;
+- confirmed user inputs;
+- tool calls;
+- structured recommendation;
+- summaries;
+- references.
+
+Do not persist:
+- hidden chain-of-thought;
+- secrets;
+- complete unbounded provider content;
+- unrelated user conversation.
+
+46.4 AGENT MODEL CHANGE
+
+Model/runtime changes:
+- config version;
+- evaluation suite;
+- canary;
+- rollback;
+- audit.
+
+Financial behavior cannot silently change because model name changed.
+
+======================================================================
+47. EVENT-DRIVEN PLATFORM
+======================================================================
+
+47.1 DOMAIN EVENTS
+
+Examples:
+
+organization.created
+treasury.created
+wallet.provisioned
+wallet.balance_observed
+policy.published
+intent.created
+intent.confirmed
+route.discovery_requested
+route.candidate_created
+intelligence.purchase_submitted
+intelligence.report_received
+proposal.created
+proposal.approved
+proposal.rejected
+execution.queued
+execution.step_updated
+execution.recoverable
+execution.completed
+receipt.created
+audit.export_ready
+
+47.2 EVENT BUS
+
+MVP:
+Database outbox + durable queue.
+
+Future:
+Managed event bus or streaming platform when required.
+
+Do not publish domain event before database commit.
+
+Use transactional outbox:
+1. Write domain state.
+2. Write outbox event in same transaction.
+3. Dispatcher publishes.
+4. Consumer handles idempotently.
+5. Mark delivery.
+
+47.3 WEBHOOKS
+
+Customer webhooks:
+- signed;
+- timestamped;
+- replay protected;
+- retry with backoff;
+- delivery history;
+- dead letter state;
+- secret rotation.
+
+Webhook does not contain secrets or sensitive full provider response.
+
+47.4 SSE AND WEBSOCKET
+
+SSE:
+- execution timeline;
+- proposal updates;
+- task status.
+
+WebSocket only if bidirectional real-time requirement appears.
+Do not add WebSocket for simple status streaming.
+
+======================================================================
+48. FUTURE-FINAL DATA ARCHITECTURE
+======================================================================
+
+48.1 SOURCE OF TRUTH
+
+PostgreSQL:
+- identity references;
+- organization;
+- policy;
+- intents;
+- proposals;
+- approvals;
+- executions;
+- audit metadata;
+- reconciliation.
+
+Blockchain/provider:
+- external authoritative transaction evidence.
+
+Object storage:
+- encrypted large reports;
+- raw normalized provider result;
+- audit export;
+- signed receipt files.
+
+Redis:
+- cache;
+- rate limit;
+- ephemeral lock only when supported by durable fallback.
+
+Redis must not be sole source of financial state.
+
+48.2 MULTI-TENANCY
+
+Every tenant-bound table includes organization_id directly or through enforced
+parent relationship.
+
+Requirements:
+- application authorization;
+- repository filtering;
+- database row-level security where practical;
+- tenant-aware unique keys;
+- tenant isolation tests;
+- no organization ID accepted blindly from agent payload.
+
+48.3 FINANCIAL AMOUNTS
+
+Store:
+- atomic integer or decimal string;
+- asset decimals;
+- asset identifier;
+- no floating point.
+
+48.4 AUDIT CHAIN
+
+Audit event includes:
+- previous event hash;
+- current event hash;
+- actor;
+- action;
+- resource;
+- timestamp;
+- request;
+- metadata hash.
+
+Future:
+periodically anchor audit root to independent storage or chain.
+
+48.5 DATA RETENTION
+
+Configurable:
+- operational logs;
+- agent task content;
+- provider report;
+- audit;
+- transaction evidence.
+
+Financial audit records cannot be deleted by normal user action.
+
+Privacy requests must distinguish:
+- removable profile data;
+- legally/operationally required transaction records.
+
+======================================================================
+49. RECONCILIATION
+======================================================================
+
+49.1 PURPOSE
+
+Execution completion is not enough.
+Archon Treasury must reconcile intended and observed outcomes.
+
+49.2 RECONCILIATION INPUTS
+
+- proposal amount;
+- execution step;
+- source wallet balance delta;
+- destination wallet balance delta;
+- provider result;
+- transaction receipts;
+- CCTP event;
+- actual fee;
+- final amount.
+
+49.3 RECONCILIATION STATES
+
+PENDING
+MATCHED
+MATCHED_WITH_VARIANCE
+MISMATCH
+MANUAL_REVIEW
+RESOLVED
+
+49.4 VARIANCE
+
+Configured tolerances:
+- fee;
+- time;
+- amount;
+- confirmation count.
+
+A transaction may be blockchain-completed but reconciliation-mismatched.
+
+Do not mark final financial workflow successful until required reconciliation
+passes.
+
+49.5 PERIODIC JOB
+
+Indexer periodically:
+- refreshes in-flight transactions;
+- reconciles completed executions;
+- detects stale state;
+- creates incident;
+- emits alert.
+
+======================================================================
+50. RECEIPT AND VERIFIABILITY
+======================================================================
+
+Receipt includes:
+
+- organization reference;
+- treasury reference;
+- operation intent;
+- proposal hash;
+- approval evidence;
+- policy hash;
+- route provider;
+- execution adapter version;
+- source transaction hashes;
+- destination transaction hashes;
+- amount in;
+- amount out;
+- fees;
+- timestamps;
+- intelligence report hashes;
+- reconciliation result;
+- audit event root;
+- receipt hash;
+- Archon signature.
+
+Formats:
+- JSON;
+- human-readable PDF in future;
+- machine-verifiable JSON schema.
+
+Receipt verification endpoint:
+- accepts receipt hash or document;
+- verifies Archon signature;
+- verifies internal field hash;
+- returns verification status.
+
+No receipt claims that cannot be derived from stored evidence.
+
+======================================================================
+51. FUTURE-FINAL SERVICE BOUNDARIES
+======================================================================
+
+51.1 MODULAR MONOLITH FIRST
+
+Initial production deployment may combine:
+- public API;
+- domain services;
+- policy;
+- route engine;
+- proposal;
+- approval.
+
+Separate from day one due risk:
+- execution worker;
+- Hermes;
+- private MCP;
+- public MCP when launched;
+- route health x402 provider.
+
+51.2 FUTURE SERVICE MAP
+
+Edge:
+- web;
+- public API gateway;
+- public MCP gateway;
+- webhook gateway.
+
+Core control plane:
+- identity service;
+- organization/treasury service;
+- wallet inventory service;
+- policy service;
+- operation service;
+- route service;
+- proposal service;
+- approval service.
+
+Agent/data:
+- agent orchestrator;
+- private MCP;
+- intelligence procurement;
+- provider registry.
+
+Execution plane:
+- execution coordinator;
+- custody adapters;
+- route provider adapters;
+- recovery coordinator;
+- indexer/reconciler.
+
+Platform:
+- audit service;
+- notification service;
+- event dispatcher;
+- observability;
+- configuration;
+- secrets.
+
+51.3 SPLIT CRITERIA
+
+Split module into service only when one applies:
+- different security boundary;
+- secrets isolation;
+- independent scaling;
+- independent failure domain;
+- independent deployment required;
+- language/runtime requirement;
+- regulatory boundary.
+
+Do not split based only on number of files.
+
+======================================================================
+52. FUTURE-FINAL REPOSITORY STRUCTURE
+======================================================================
+
+archon-treasury/
+|
++-- apps/
+|   +-- web/
+|   +-- operator-console/
+|   +-- developer-portal/
+|
++-- gateways/
+|   +-- public-api/
+|   +-- public-mcp/
+|   +-- webhooks/
+|
++-- services/
+|   +-- control-plane/
+|   +-- private-mcp/
+|   +-- hermes-gateway/
+|   +-- route-worker/
+|   +-- execution-worker/
+|   +-- indexer/
+|   +-- reconciler/
+|   +-- event-dispatcher/
+|   +-- notification-worker/
+|   +-- route-health-provider/
+|
++-- packages/
+|   +-- domain/
+|   +-- application/
+|   +-- database/
+|   +-- auth/
+|   +-- api-contracts/
+|   +-- mcp-contracts/
+|   +-- event-contracts/
+|   +-- policy-engine/
+|   +-- approval-engine/
+|   +-- route-engine/
+|   +-- proposal-engine/
+|   +-- execution-state-machine/
+|   +-- reconciliation-engine/
+|   +-- receipt-engine/
+|   +-- agent-orchestrator/
+|   +-- provider-registry/
+|   +-- intelligence-client/
+|   +-- circle-tools/
+|   +-- wallet-adapters/
+|   +-- route-provider-adapters/
+|   +-- chain-registry/
+|   +-- asset-registry/
+|   +-- audit/
+|   +-- observability/
+|   +-- config/
+|   +-- crypto/
+|   +-- ui/
+|   +-- testing/
+|
++-- adapters/
+|   +-- wallet-circle-dcw/
+|   +-- wallet-circle-agent/
+|   +-- route-circle-cctp/
+|   +-- future-customer-signer/
+|
++-- infra/
+|   +-- containers/
+|   +-- compose/
+|   +-- kubernetes/
+|   +-- terraform/
+|   +-- monitoring/
+|   +-- database/
+|   +-- secrets/
+|
++-- docs/
+|   +-- product/
+|   +-- architecture/
+|   +-- adr/
+|   +-- security/
+|   +-- api/
+|   +-- mcp/
+|   +-- runbooks/
+|   +-- operations/
+|
++-- tests/
+    +-- unit/
+    +-- contract/
+    +-- integration/
+    +-- e2e/
+    +-- security/
+    +-- resilience/
+    +-- load/
+
+======================================================================
+53. ARCHITECTURE DECISION RECORDS
+======================================================================
+
+Required ADR files:
+
+ADR-0001:
+Use two-wallet model.
+
+ADR-0002:
+Hermes cannot execute treasury operations.
+
+ADR-0003:
+Public MCP maps to application commands.
+
+ADR-0004:
+PostgreSQL is source of truth.
+
+ADR-0005:
+Use transactional outbox.
+
+ADR-0006:
+Proposal hash binds approval.
+
+ADR-0007:
+Execution worker owns DCW credentials.
+
+ADR-0008:
+No arbitrary wallet operation API.
+
+ADR-0009:
+Route scoring deterministic.
+
+ADR-0010:
+Persist bridge recovery state.
+
+ADR-0011:
+Use wallet and route provider adapters.
+
+ADR-0012:
+Start with modular monolith.
+
+ADR-0013:
+External agent identity separate from human user.
+
+ADR-0014:
+No hidden chain-of-thought persistence.
+
+ADR-0015:
+Mock prohibited in deployed financial paths.
+
+Agent must read relevant ADR before modifying related module.
+
+ADR change:
+- separate PR;
+- includes motivation;
+- alternatives;
+- consequences;
+- migration;
+- security effect.
+
+======================================================================
+54. CODING AGENT IMPLEMENTATION RULES
+======================================================================
+
+These rules are mandatory for Hermes/Codex/other coding agents.
+
+54.1 BEFORE CODING
+
+Agent must:
+1. Read this PRD.
+2. Read relevant ADR.
+3. Read package README.
+4. Inspect existing interfaces.
+5. Identify security boundary.
+6. State files expected to change.
+7. Avoid unrelated refactor.
+
+54.2 PR SIZE
+
+Default:
+- one coherent behavior;
+- limited file count;
+- reviewable diff;
+- no simultaneous architecture migration and feature.
+
+Recommended:
+- under 500 changed lines excluding generated lock/migration where possible;
+- one database migration per domain change;
+- one primary acceptance criterion.
+
+Large PR allowed only for:
+- generated SDK;
+- package extraction;
+- dependency lock;
+- clearly documented mechanical rename.
+
+54.3 PROHIBITED AGENT SHORTCUTS
+
+- fake provider.
+- hardcoded success.
+- TODO in financial safety path.
+- arbitrary `any`.
+- disabling typecheck.
+- swallowing error.
+- direct database access from UI.
+- direct wallet access from MCP.
+- using floating point for amount.
+- bypassing policy for testnet.
+- adding raw CLI command.
+- adding generic execute transaction endpoint.
+- using in-memory state for execution.
+- marking completed from submitted transaction.
+- automatic retry after ambiguous mutation.
+- exposing stack trace to public client.
+- logging secret.
+- expanding tool scope without ADR/security review.
+
+54.4 REQUIRED PR DESCRIPTION
+
+Every PR must include:
+
+- problem;
+- scope;
+- non-scope;
+- architecture section affected;
+- security impact;
+- database impact;
+- API/MCP contract impact;
+- migration;
+- tests;
+- rollback;
+- acceptance criteria.
+
+54.5 TEST EXPECTATION
+
+Every behavior PR:
+- unit test;
+- contract test if boundary changes;
+- integration test if provider interaction;
+- tenant isolation test if tenant data;
+- idempotency test if mutation;
+- failure test;
+- audit assertion if financial state.
+
+54.6 STOP CONDITION
+
+Coding agent must stop and create an issue/ADR instead of guessing when:
+- custody semantics unclear;
+- provider side effect cannot be classified;
+- proposal fields need material change;
+- retry safety unknown;
+- tenant ownership unclear;
+- secret location unclear;
+- chain/provider support undocumented.
+
+======================================================================
+55. INCREMENTAL PULL REQUEST ROADMAP
+======================================================================
+
+This roadmap is ordered.
+PR number is conceptual, not actual GitHub number.
+
+STREAM A — FOUNDATION
+
+PR-A001:
+Create production workspace and build graph.
+
+PR-A002:
+Add environment schema validation.
+
+PR-A003:
+Add shared error taxonomy.
+
+PR-A004:
+Add request/trace context.
+
+PR-A005:
+Add PostgreSQL and migration tooling.
+
+PR-A006:
+Add organization schema/repository.
+
+PR-A007:
+Add membership and RBAC.
+
+PR-A008:
+Add treasury schema/repository.
+
+PR-A009:
+Add append-only audit event writer.
+
+PR-A010:
+Add tenant isolation integration tests.
+
+STREAM B — POLICY AND DOMAIN
+
+PR-B001:
+Add Money value object.
+
+PR-B002:
+Add Chain and Asset registries.
+
+PR-B003:
+Add wallet purpose and wallet state domain.
+
+PR-B004:
+Add route intent domain.
+
+PR-B005:
+Add policy JSON schema.
+
+PR-B006:
+Add deterministic policy evaluator.
+
+PR-B007:
+Add policy version publication.
+
+PR-B008:
+Add emergency stop.
+
+PR-B009:
+Add policy evaluation audit.
+
+STREAM C — CIRCLE AGENT WALLET/x402
+
+PR-C001:
+Add asynchronous Circle CLI runner.
+
+PR-C002:
+Add CLI version compatibility check.
+
+PR-C003:
+Add Circle CLI health endpoint.
+
+PR-C004:
+Add Agent Wallet read adapter.
+
+PR-C005:
+Add Gateway balance read.
+
+PR-C006:
+Add provider registry.
+
+PR-C007:
+Harden service inspect.
+
+PR-C008:
+Harden service pay with max amount.
+
+PR-C009:
+Persist intelligence purchase receipt.
+
+PR-C010:
+Block unsafe payment replay.
+
+STREAM D — DCW
+
+PR-D001:
+Create DCW adapter package.
+
+PR-D002:
+Add managed secret configuration interface.
+
+PR-D003:
+Add wallet set provisioning.
+
+PR-D004:
+Add treasury wallet creation.
+
+PR-D005:
+Add DCW balance synchronization.
+
+PR-D006:
+Add wallet health.
+
+PR-D007:
+Add wallet inventory API.
+
+PR-D008:
+Add wallet onboarding UI.
+
+STREAM E — CCTP/APP KIT
+
+PR-E001:
+Create route provider adapter interface.
+
+PR-E002:
+Add Circle CCTP/App Kit provider capabilities.
+
+PR-E003:
+Add bridge estimate.
+
+PR-E004:
+Add FAST candidate.
+
+PR-E005:
+Add Standard candidate.
+
+PR-E006:
+Add simulation/preflight.
+
+PR-E007:
+Add normalized BridgeResult.
+
+PR-E008:
+Add execution step persistence.
+
+PR-E009:
+Add recovery classification.
+
+PR-E010:
+Add retry from persisted state.
+
+STREAM F — ROUTE ENGINE
+
+PR-F001:
+Add discovery run model.
+
+PR-F002:
+Add route candidate model.
+
+PR-F003:
+Add eligibility filter.
+
+PR-F004:
+Add deterministic scoring v1.
+
+PR-F005:
+Add candidate freshness/expiry.
+
+PR-F006:
+Add route ranking API.
+
+PR-F007:
+Add route comparison UI.
+
+STREAM G — REAL x402 PROVIDER
+
+PR-G001:
+Create route health service skeleton.
+
+PR-G002:
+Add source RPC health collection.
+
+PR-G003:
+Add destination RPC health collection.
+
+PR-G004:
+Add Circle fee/capability collection.
+
+PR-G005:
+Add execution history metrics.
+
+PR-G006:
+Add deterministic health scoring.
+
+PR-G007:
+Add report signing.
+
+PR-G008:
+Add x402 seller middleware.
+
+PR-G009:
+Register provider.
+
+PR-G010:
+Consume paid report in route policy/scoring.
+
+STREAM H — PRIVATE MCP/HERMES
+
+PR-H001:
+Create versioned MCP contracts.
+
+PR-H002:
+Create private MCP service.
+
+PR-H003:
+Add scoped service-token auth.
+
+PR-H004:
+Add treasury read tools.
+
+PR-H005:
+Add route discovery tools.
+
+PR-H006:
+Add paid intelligence tool.
+
+PR-H007:
+Add ranking read tool.
+
+PR-H008:
+Add create proposal tool.
+
+PR-H009:
+Configure Hermes allowlist.
+
+PR-H010:
+Add agent output validation.
+
+PR-H011:
+Add prompt-injection tests.
+
+PR-H012:
+Add deterministic fallback.
+
+STREAM I — PROPOSAL AND APPROVAL
+
+PR-I001:
+Add execution plan schema.
+
+PR-I002:
+Add proposal hash.
+
+PR-I003:
+Add proposal expiry.
+
+PR-I004:
+Add approval record.
+
+PR-I005:
+Add approval nonce.
+
+PR-I006:
+Add approval API.
+
+PR-I007:
+Add proposal detail UI.
+
+PR-I008:
+Add approval UI.
+
+PR-I009:
+Add approval replay tests.
+
+STREAM J — EXECUTION
+
+PR-J001:
+Create execution worker.
+
+PR-J002:
+Add execution queue and idempotency.
+
+PR-J003:
+Add distributed execution lock.
+
+PR-J004:
+Add execution preflight.
+
+PR-J005:
+Add approved bridge execution.
+
+PR-J006:
+Add state transition events.
+
+PR-J007:
+Add execution timeline API.
+
+PR-J008:
+Add SSE timeline UI.
+
+PR-J009:
+Add recovery proposal.
+
+PR-J010:
+Add recovery execution.
+
+STREAM K — RECONCILIATION AND RECEIPT
+
+PR-K001:
+Add blockchain indexer.
+
+PR-K002:
+Add execution inspection polling.
+
+PR-K003:
+Add reconciliation model.
+
+PR-K004:
+Add source/destination delta reconciliation.
+
+PR-K005:
+Add receipt JSON schema.
+
+PR-K006:
+Add receipt hashing/signing.
+
+PR-K007:
+Add receipt API.
+
+PR-K008:
+Add audit export.
+
+STREAM L — PRODUCTION HARDENING
+
+PR-L001:
+Add structured redacted logging.
+
+PR-L002:
+Add metrics.
+
+PR-L003:
+Add distributed tracing.
+
+PR-L004:
+Add rate limiting.
+
+PR-L005:
+Add backup automation.
+
+PR-L006:
+Add restore test.
+
+PR-L007:
+Add security headers/CSRF.
+
+PR-L008:
+Add dependency and secret scanning.
+
+PR-L009:
+Add incident runbooks.
+
+PR-L010:
+Production-testnet launch gate.
+
+STREAM M — PUBLIC API PLATFORM
+
+PR-M001:
+Extract public API contracts.
+
+PR-M002:
+Add service account model.
+
+PR-M003:
+Add scoped client credentials.
+
+PR-M004:
+Add public API rate plan.
+
+PR-M005:
+Add webhook registration.
+
+PR-M006:
+Add transactional outbox.
+
+PR-M007:
+Add webhook delivery worker.
+
+PR-M008:
+Add developer portal/API documentation.
+
+STREAM N — PUBLIC MCP
+
+PR-N001:
+Create public MCP gateway service.
+
+PR-N002:
+Add external agent model.
+
+PR-N003:
+Add MCP OAuth/token exchange.
+
+PR-N004:
+Add read tools.
+
+PR-N005:
+Add draft intent tool.
+
+PR-N006:
+Add discovery request tool.
+
+PR-N007:
+Add proposal request tool.
+
+PR-N008:
+Add public MCP budget/rate limits.
+
+PR-N009:
+Add malicious external-agent tests.
+
+PR-N010:
+Public MCP beta launch.
+
+STREAM O — FUTURE WALLET MODES
+
+PR-O001:
+Generalize custody mode domain.
+
+PR-O002:
+Add customer-managed wallet read adapter.
+
+PR-O003:
+Add unsigned execution package export.
+
+PR-O004:
+Add customer signer callback contract.
+
+PR-O005:
+Add customer-hosted signer adapter.
+
+PR-O006:
+Add external custodian status reconciliation.
+
+STREAM P — FUTURE APPROVAL
+
+PR-P001:
+Add approval plan domain.
+
+PR-P002:
+Add quorum approval.
+
+PR-P003:
+Add sequential approval.
+
+PR-P004:
+Add WebAuthn approval.
+
+PR-P005:
+Add standing authorization domain.
+
+PR-P006:
+Add constrained automation execution.
+
+STREAM Q — MULTI-PROVIDER
+
+PR-Q001:
+Provider onboarding workflow.
+
+PR-Q002:
+Provider capability registry UI.
+
+PR-Q003:
+Second real route provider adapter.
+
+PR-Q004:
+Multi-provider candidate normalization.
+
+PR-Q005:
+Provider-specific recovery model.
+
+PR-Q006:
+Provider incident routing exclusion.
+
+======================================================================
+56. DELIVERY STAGES
+======================================================================
+
+STAGE 1:
+PRODUCTION-READY TESTNET MVP
+
+Includes:
+- internal users;
+- web app;
+- private API;
+- private MCP;
+- Hermes;
+- Agent Wallet x402;
+- DCW treasury;
+- Circle CCTP/App Kit;
+- Arc Testnet;
+- manual approval;
+- audit;
+- recovery.
+
+STAGE 2:
+PRIVATE MAINNET PILOT
+
+Includes:
+- selected organizations;
+- small mainnet caps;
+- recipient allowlist;
+- MFA;
+- stronger monitoring;
+- operational on-call;
+- formal security review.
+
+STAGE 3:
+MULTI-TENANT SAAS
+
+Includes:
+- self-service organization;
+- billing;
+- service accounts;
+- stable public API;
+- webhook;
+- expanded RBAC;
+- enterprise SSO.
+
+STAGE 4:
+PUBLIC AGENT PLATFORM
+
+Includes:
+- external agent identities;
+- public scoped MCP;
+- agent developer portal;
+- customer-owned agent integrations;
+- strict quotas and policy.
+
+STAGE 5:
+MULTI-CUSTODY AND MULTI-PROVIDER
+
+Includes:
+- customer-hosted signer;
+- external custodian;
+- additional route provider;
+- richer treasury operations;
+- reconciliation expansion.
+
+STAGE 6:
+PROGRAMMABLE TREASURY AUTOMATION
+
+Includes:
+- standing authorization;
+- scheduled operations;
+- constrained policy-triggered rebalance;
+- no unrestricted agent autonomy.
+
+======================================================================
+57. FUTURE-FINAL SECURITY MODEL
+======================================================================
+
+57.1 SECURITY ZONES
+
+Zone 1:
+Public edge.
+- web;
+- public API;
+- public MCP;
+- webhooks.
+
+Zone 2:
+Application control plane.
+- domain;
+- policy;
+- proposal;
+- approval.
+
+Zone 3:
+Agent/research.
+- Hermes;
+- private MCP;
+- x402 buyer.
+
+Zone 4:
+Execution.
+- execution worker;
+- DCW credentials;
+- route provider execution.
+
+Zone 5:
+Data.
+- database;
+- object storage;
+- secrets;
+- audit signing.
+
+Zone 4 cannot be reached directly from Zone 1 or Zone 3.
+
+57.2 EGRESS
+
+Execution worker egress allowlist:
+- Circle APIs;
+- required RPC endpoints;
+- approved provider endpoints;
+- telemetry.
+
+Private/public MCP egress:
+- preferably none;
+- all provider access through application service.
+
+57.3 KEY MANAGEMENT
+
+- secret manager;
+- envelope encryption;
+- rotation;
+- least privilege;
+- access audit;
+- no secrets in CI logs;
+- no secrets in repository;
+- separate environment;
+- emergency revoke.
+
+57.4 SOFTWARE SUPPLY CHAIN
+
+- lockfile.
+- dependency pin.
+- SBOM.
+- signed container.
+- vulnerability scan.
+- protected main branch.
+- reviewed production deployment.
+- provenance where available.
+
+57.5 INCIDENT TYPES
+
+- unauthorized intent;
+- unauthorized approval;
+- duplicate execution;
+- secret exposure;
+- provider compromise;
+- agent prompt injection;
+- x402 budget drain;
+- reconciliation mismatch;
+- stuck burn/mint;
+- cross-tenant data exposure.
+
+Each incident type requires runbook.
+
+======================================================================
+58. FUTURE-FINAL OBSERVABILITY AND SLO
+======================================================================
+
+Service SLO candidates:
+
+Public API:
+- 99.9% read availability.
+- 99.5% mutation acceptance.
+
+Control plane:
+- no loss of confirmed intent/proposal/approval.
+
+Execution:
+- at-least-once job delivery;
+- effectively-once financial side effect through idempotency/state.
+
+Audit:
+- 100% financial state transition audit write.
+- failure to audit blocks high-risk mutation.
+
+Metrics by organization:
+- route requests;
+- approved amount;
+- completed amount;
+- failure rate;
+- recovery rate;
+- x402 spend;
+- provider distribution;
+- approval duration;
+- execution duration;
+- reconciliation variance.
+
+Do not expose other tenant metrics.
+
+======================================================================
+59. BILLING AND COMMERCIAL ARCHITECTURE
+======================================================================
+
+Future billing dimensions:
+- organization subscription;
+- treasury count;
+- managed wallet count;
+- route operation count;
+- agent task count;
+- public MCP usage;
+- x402 pass-through spend;
+- premium intelligence;
+- enterprise support.
+
+Billing does not control authoritative financial state.
+
+If billing system unavailable:
+- existing active execution and recovery continue;
+- new non-critical tasks may be limited;
+- recovery is never blocked due billing.
+
+x402 provider spend:
+- pass-through accounting separated from Archon platform fee;
+- receipt identifies provider cost;
+- customer budget visible.
+
+======================================================================
+60. PRODUCT ANALYTICS
+======================================================================
+
+Allowed analytics:
+- funnel events;
+- feature usage;
+- anonymized operational aggregates;
+- performance.
+
+Not allowed:
+- secrets;
+- private keys;
+- entity secret;
+- full wallet transaction payload without need;
+- provider confidential response;
+- sensitive approval evidence;
+- hidden chain-of-thought.
+
+Analytics failure must not affect financial workflow.
+
+======================================================================
+61. MAINNET AND REGULATORY BOUNDARIES
+======================================================================
+
+Before broad mainnet:
+- legal review;
+- custody characterization;
+- sanctions/compliance review;
+- data retention policy;
+- customer terms;
+- incident disclosure process;
+- jurisdiction analysis.
+
+Product wording must not claim:
+- guaranteed returns;
+- insured transfer;
+- guaranteed settlement time;
+- zero risk;
+- bank account status;
+- regulatory approval without evidence.
+
+Archon Treasury should present:
+- estimated fee;
+- estimated time;
+- observed risk;
+- provider state;
+- actual result.
+
+======================================================================
+62. FUTURE-FINAL ACCEPTANCE CRITERIA
+======================================================================
+
+The final platform is achieved when:
+
+1. Multiple organizations are isolated.
+2. Human users operate via web/API.
+3. Customer backends operate via scoped public API.
+4. Internal Hermes operates via private MCP.
+5. Customer agents operate via public scoped MCP.
+6. All interfaces use the same application services.
+7. No agent directly executes treasury movement.
+8. Multiple wallet custody modes are supported through adapters.
+9. Multiple real route providers can be normalized.
+10. Policy and approval are provider-independent.
+11. Standing authorization, if enabled, is constrained and revocable.
+12. Execution remains idempotent.
+13. Recovery works per provider.
+14. Reconciliation verifies final outcome.
+15. Receipt is machine-verifiable.
+16. Audit lineage is complete.
+17. External agents cannot raise their own permissions or budget.
+18. Public MCP can be disabled without affecting web/API execution.
+19. Hermes can be replaced without changing financial domain.
+20. A custody adapter can be replaced without changing proposal semantics.
+21. A route provider can be added without changing approval engine.
+22. All deployed financial integrations are real.
+23. Mainnet operation follows launch gate.
+24. Security zones and secrets boundaries are enforced.
+25. Every future feature can be delivered through reviewable PRs.
+
+======================================================================
+63. FINAL NORTH-STAR FLOW
+======================================================================
+
+Human flow:
+
+Human
+  -> Archon Web
+  -> Public API
+  -> Intent
+  -> Route/Intelligence
+  -> Proposal
+  -> Human Approval
+  -> Execution Worker
+  -> Custody Adapter
+  -> Route Provider
+  -> Reconciliation
+  -> Receipt
+
+Internal agent flow:
+
+Human/Backend
+  -> Agent Task
+  -> Hermes
+  -> Private MCP
+  -> Research/Application Services
+  -> Proposal
+  -> Human Approval
+  -> Execution Worker
+
+External agent flow:
+
+Customer Agent
+  -> Public Scoped MCP
+  -> Application Services
+  -> Draft/Discovery/Proposal
+  -> Approval Required
+  -> Human or valid standing authorization
+  -> Execution Worker
+
+Customer backend flow:
+
+Customer Backend
+  -> Public REST API
+  -> Intent/Proposal
+  -> Approval workflow
+  -> Execution Worker
+  -> Webhook/Receipt
+
+All paths converge at:
+
+- same tenant boundary;
+- same policy engine;
+- same proposal engine;
+- same approval engine;
+- same execution state machine;
+- same audit;
+- same reconciliation.
+
+======================================================================
+64. FINAL NON-NEGOTIABLE INVARIANTS
+======================================================================
+
+INVARIANT 1:
+Agent reasoning never equals financial authorization.
+
+INVARIANT 2:
+Approved proposal fields cannot change during execution.
+
+INVARIANT 3:
+No financial side effect without idempotency strategy.
+
+INVARIANT 4:
+No retry when side-effect state is ambiguous.
+
+INVARIANT 5:
+No completion without external evidence.
+
+INVARIANT 6:
+No financial state without audit.
+
+INVARIANT 7:
+No cross-tenant access.
+
+INVARIANT 8:
+No secret in browser, agent, MCP result, log, or database plaintext.
+
+INVARIANT 9:
+No arbitrary CLI, HTTP, SQL, signing, or transaction tool exposed to agent.
+
+INVARIANT 10:
+Mock is prohibited in deployed financial path.
+
+INVARIANT 11:
+Public MCP is an adapter, not an alternate backend.
+
+INVARIANT 12:
+Execution worker is the only platform component permitted to use treasury
+execution credentials.
+
+INVARIANT 13:
+Policy is deterministic and versioned.
+
+INVARIANT 14:
+Human approval is explicit unless a pre-existing constrained standing
+authorization applies.
+
+INVARIANT 15:
+Recovery cannot create duplicate value movement.
+
+======================================================================
+65. FINAL DOCUMENT USAGE FOR GITHUB
+======================================================================
+
+Recommended repository documentation:
+
+docs/product/archon-treasury-prd.txt
+- copy of this complete document.
+
+docs/architecture/overview.md
+- high-level diagrams.
+
+docs/architecture/security-boundaries.md
+- trust zones.
+
+docs/architecture/execution-state-machine.md
+- execution details.
+
+docs/architecture/public-mcp.md
+- external agent contract.
+
+docs/architecture/wallet-custody.md
+- custody modes and secrets.
+
+docs/architecture/provider-adapters.md
+- route provider contract.
+
+docs/adr/
+- architecture decisions.
+
+docs/runbooks/
+- operational recovery.
+
+Root AGENTS.md should state:
+
+1. Read docs/product/archon-treasury-prd.txt.
+2. Read relevant ADR.
+3. Keep PR small.
+4. Never bypass policy/approval.
+5. Never expose raw wallet/CLI.
+6. Never add mocks to deployed financial path.
+7. Add tests, audit, idempotency, and error handling.
+8. Stop and create ADR when safety semantics are unclear.
+
+======================================================================
+66. FINAL PROJECT DEFINITION
+======================================================================
+
+Archon Treasury is not considered complete merely because:
+
+- an agent can call MCP;
+- a wallet can send USDC;
+- a bridge transaction succeeds;
+- a dashboard shows balances;
+- a chatbot produces a recommendation.
+
+Archon Treasury reaches its north-star when:
+
+- humans and software agents can safely request treasury operations;
+- agent interfaces are useful but never privileged beyond policy;
+- every operation is converted into deterministic candidates;
+- paid intelligence can be purchased under budget;
+- proposals are immutable;
+- approvals are verifiable;
+- execution is isolated;
+- bridge and transfer state is recoverable;
+- final outcomes are reconciled;
+- receipts are verifiable;
+- all actions are tenant-isolated and audited;
+- custody and route providers are replaceable through adapters;
+- the platform scales from testnet MVP to multi-tenant mainnet operation without
+  abandoning its security model.
+
+######################################################################
+END OF FUTURE-FINAL SPECIFICATION
+######################################################################

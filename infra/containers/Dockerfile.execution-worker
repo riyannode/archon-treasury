@@ -1,0 +1,28 @@
+# ==============================================================================
+# Archon Treasury — Execution Worker
+# ==============================================================================
+FROM node:20-alpine AS base
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+
+FROM base AS deps
+COPY pnpm-workspace.yaml pnpm-lock.yaml package.json ./
+COPY services/execution-worker/package.json services/execution-worker/
+COPY packages/*/package.json packages/
+RUN pnpm install --frozen-lockfile
+
+FROM deps AS build
+COPY tsconfig.base.json ./
+COPY services/execution-worker/ services/execution-worker/
+COPY packages/ packages/
+RUN pnpm --filter @archon-treasury/execution-worker run build
+
+FROM node:20-alpine AS production
+RUN corepack enable && corepack prepare pnpm@latest --activate
+WORKDIR /app
+
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/services/execution-worker/dist ./services/execution-worker/dist
+COPY --from=build /app/services/execution-worker/package.json ./services/execution-worker/
+
+CMD ["node", "services/execution-worker/dist/worker.js"]

@@ -1,0 +1,28 @@
+{
+  "name": "archon-treasury",
+  "private": true,
+  "description": "Policy, intelligence, approval, and execution control plane for crosschain USDC treasury operations",
+  "engines": {
+    "node": ">=20",
+    "pnpm": ">=9"
+  },
+  "scripts": {
+    "dev": "pnpm -r --parallel run dev",
+    "build": "pnpm -r run build",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "pnpm -r run lint",
+    "test": "pnpm -r run test",
+    "test:unit": "pnpm -r --filter './tests/unit/**' run test",
+    "test:integration": "pnpm -r --filter './tests/integration/**' run test",
+    "db:migrate": "pnpm --filter @archon-treasury/database run migrate",
+    "db:generate": "pnpm --filter @archon-treasury/database run generate",
+    "clean": "pnpm -r run clean && rm -rf node_modules"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0",
+    "vitest": "^3.0.0",
+    "eslint": "^9.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.0.0",
+    "@typescript-eslint/parser": "^8.0.0"
+  }
+}

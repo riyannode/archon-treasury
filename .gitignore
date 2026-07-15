@@ -1,0 +1,52 @@
+# Dependencies
+node_modules/
+.pnpm-store/
+
+# Build output
+dist/
+build/
+.next/
+out/
+*.tsbuildinfo
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# Testing
+coverage/
+.nyc_output/
+
+# Temp scripts (CodeQL sensitive data)
+.tmp_*
+debug_*
+
+# Secrets
+*.pem
+*.key
+*.cert
+secrets/
+
+# Database
+*.db
+*.sqlite
+
+# Docker
+docker-compose.override.yml
