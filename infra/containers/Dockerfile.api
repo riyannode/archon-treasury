@@ -28,6 +28,6 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/apps/api/dist ./apps/api/dist
 COPY --from=build /app/apps/api/package.json ./apps/api/
 
-EXPOSE 3002
+EXPOSE 3000
 
 CMD ["node", "apps/api/dist/server.js"]

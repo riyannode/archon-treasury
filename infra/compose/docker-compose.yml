@@ -35,9 +35,10 @@ services:
       context: .
       dockerfile: infra/containers/Dockerfile.api
     ports:
-      - "3002:3002"
+      - "3000:3000"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/archon_treasury
+      PORT: "3000"
+      DATABASE_URL: postgresql://postgres:***@postgres:5432/archon_treasury
     depends_on:
       postgres:
         condition: service_healthy

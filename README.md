@@ -33,6 +33,21 @@ pnpm lint           # lint all files
 pnpm test           # run all tests
 ```
 
+## Docker
+
+The API server exposes port **3000** by default (configurable via `PORT` env var).
+
+```bash
+# Start PostgreSQL + Redis + API
+docker compose -f infra/compose/docker-compose.yml up -d
+
+# API is available at http://localhost:3000
+# Health check: curl http://localhost:3000
+
+# Override port (e.g. for local dev on 4000)
+PORT=4000 docker compose -f infra/compose/docker-compose.yml up api
+```
+
 ## Planned MVP (Stage 1 — Production-Ready Testnet)
 
 Scope: internal users, web app, private API, private MCP, Hermes, Agent Wallet x402, DCW treasury, Circle CCTP/App Kit, Arc Testnet, manual approval, audit, recovery.
