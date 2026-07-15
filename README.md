@@ -6,107 +6,96 @@
 
 ---
 
-## Overview
+## Current Implementation
 
-Archon Treasury enables organizations to safely route treasury USDC across chains with agent-assisted research and human-approved execution.
+Working monorepo with runnable TypeScript workspaces:
 
-### Core Principles
+| Workspace | Package | Status |
+|-----------|---------|--------|
+| `apps/api` | `@archon-treasury/api` | ✅ Minimal HTTP server scaffold |
+| `packages/config` | `@archon-treasury/config` | ✅ Environment config loader |
+| `packages/domain` | `@archon-treasury/domain` | ✅ Money value object (USDC) |
+| `packages/observability` | `@archon-treasury/observability` | ✅ Structured JSON logger |
 
-1. **Agent reasoning ≠ financial authorization** — LLM cannot execute treasury moves
-2. **Two-wallet separation** — Agent Wallet (research/x402) ≠ DCW (treasury execution)
-3. **Paid intelligence** — x402 per-request payment for route health, risk, fees
-4. **Immutable proposals** — Hash-bound, expiring, approval-gated
-5. **Recovery-first** — Every bridge step persisted, partial failures resumable
-6. **Audit-first** — Every financial transition logged with full lineage
+**Infrastructure:**
+- pnpm workspace monorepo (Node.js ≥22, pnpm ≥9)
+- Shared TypeScript config (`tsconfig.base.json`)
+- ESLint flat config with `@typescript-eslint`
+- Vitest test runner (10 tests across 4 files)
+- GitHub Actions CI (lint → typecheck → test → build)
+- Docker Compose (PostgreSQL + Redis)
 
-## Architecture
-
-```
-Browser → Next.js Web → Archon Treasury API
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-         PostgreSQL      Durable Queue     Hermes Agent
-                              │               │
-              ┌───────┬───────┤         Private MCP
-              │       │       │
-         Route    Execution  Indexer
-         Worker   Worker
-              │       │       │
-        Circle CLI  DCW/App  RPC/Circle
-        Agent W.    Kit      Status
-```
-
-## Monorepo Structure
-
-```
-archon-treasury/
-├── apps/
-│   ├── web/                    # Next.js web application
-│   └── api/                    # REST API server
-├── services/
-│   ├── hermes-gateway/         # Hermes Agent configuration
-│   ├── mcp/                    # Private MCP server
-│   ├── route-worker/           # Route discovery & ranking
-│   ├── execution-worker/       # DCW bridge execution
-│   ├── indexer/                # Blockchain & RPC monitoring
-│   ├── route-health-provider/  # x402 route health service
-│   └── public-mcp-gateway/     # External agent MCP interface
-├── packages/
-│   ├── domain/                 # Entities, value objects, state machines
-│   ├── database/               # Schema, migrations, repositories
-│   ├── auth/                   # RBAC, permissions, OIDC
-│   ├── policy-engine/          # Deterministic policy evaluation
-│   ├── route-engine/           # Discovery, scoring, ranking
-│   ├── agent-orchestrator/     # Hermes adapter interface
-│   ├── mcp-contracts/          # Tool & result schemas
-│   ├── x402-client/            # x402 payment client
-│   ├── x402-provider/          # x402 seller middleware
-│   ├── agent-wallet-adapter/   # Circle CLI wrapper
-│   ├── dcw-wallet-adapter/     # DCW SDK wrapper
-│   ├── bridge-adapter/         # CCTP/App Kit wrapper
-│   ├── provider-registry/      # x402 provider management
-│   ├── chain-registry/         # Chain configuration
-│   ├── circle-tools/           # Circle CLI async runner
-│   ├── observability/          # Logging, tracing, metrics
-│   ├── config/                 # Environment schema
-│   └── ui/                     # Shared UI components
-├── infra/                      # Docker, K8s, Terraform
-├── docs/                       # Architecture, ADRs, runbooks
-└── tests/                      # Unit, integration, E2E, security
-```
-
-## Quick Start
-
+**Commands:**
 ```bash
-# Install dependencies
-pnpm install
-
-# Set up environment
-cp .env.example .env
-# Edit .env with your values
-
-# Run database migrations
-pnpm db:migrate
-
-# Start development
-pnpm dev
+pnpm install        # install all dependencies
+pnpm typecheck      # type-check all workspaces
+pnpm lint           # lint all files
+pnpm test           # run all tests
 ```
+
+## Planned MVP (Stage 1 — Production-Ready Testnet)
+
+Scope: internal users, web app, private API, private MCP, Hermes, Agent Wallet x402, DCW treasury, Circle CCTP/App Kit, Arc Testnet, manual approval, audit, recovery.
+
+| Workspace | Description |
+|-----------|-------------|
+| `apps/web` | Next.js web application (dashboard, proposals, approvals) |
+| `apps/api` | REST API server (organizations, treasuries, routes, proposals) |
+| `services/mcp` | Private MCP server for Hermes Agent |
+| `services/route-worker` | Route discovery & ranking |
+| `services/execution-worker` | DCW bridge execution |
+| `packages/domain` | Entities, value objects, state machines |
+| `packages/database` | Schema, migrations, repositories |
+| `packages/auth` | RBAC, permissions, OIDC |
+| `packages/policy-engine` | Deterministic policy evaluation |
+| `packages/route-engine` | Discovery, scoring, ranking |
+| `packages/agent-orchestrator` | Hermes adapter interface |
+| `packages/mcp-contracts` | Tool & result schemas |
+| `packages/x402-client` | x402 payment client |
+| `packages/agent-wallet-adapter` | Circle CLI wrapper |
+| `packages/dcw-wallet-adapter` | DCW SDK wrapper |
+| `packages/bridge-adapter` | CCTP/App Kit wrapper |
+
+## Future Architecture (Stage 2–6)
+
+Platform evolution toward multi-tenant SaaS with public agent platform:
+
+```
+Edge:          Web → Public API → Public MCP → Webhooks
+Control Plane: Identity → Policy → Proposal → Approval
+Agent:         Hermes → Private MCP → Intelligence
+Execution:     Coordinator → Wallet Adapters → Route Providers
+Platform:      Audit → Notifications → Events → Observability
+```
+
+**Key future capabilities:**
+- External customer agents via public scoped MCP
+- Multiple wallet custody modes (DCW, customer-managed, customer-hosted signer)
+- Multiple route providers
+- Standing authorization for constrained automation
+- Reconciliation and verifiable receipts
+- Programmatic treasury automation
 
 ## Documentation
 
-- [Product PRD](docs/product/archon-treasury-prd.txt)
-- [Architecture Overview](docs/architecture/overview.md)
-- [Security Boundaries](docs/architecture/security-boundaries.md)
-- [MCP Tools](docs/mcp/tools.md)
-- [x402 Payment Safety](docs/security/x402-payment-safety.md)
-- [Bridge Recovery](docs/architecture/bridge-recovery.md)
-- [Incident Response](docs/runbooks/incident-response.md)
-- [Mainnet Launch](docs/operations/mainnet-launch.md)
+| Document | Path |
+|----------|------|
+| Product PRD | [docs/product/archon-treasury-prd.txt](docs/product/archon-treasury-prd.txt) |
+| Architecture Overview | [docs/architecture/overview.md](docs/architecture/overview.md) |
+| Security Boundaries | [docs/architecture/security-boundaries.md](docs/architecture/security-boundaries.md) |
+| Execution State Machine | [docs/architecture/execution-state-machine.md](docs/architecture/execution-state-machine.md) |
+| Wallet Custody Modes | [docs/architecture/wallet-custody.md](docs/architecture/wallet-custody.md) |
+| Provider Adapters | [docs/architecture/provider-adapters.md](docs/architecture/provider-adapters.md) |
+| Bridge Recovery | [docs/architecture/bridge-recovery.md](docs/architecture/bridge-recovery.md) |
+| MCP Tools | [docs/mcp/tools.md](docs/mcp/tools.md) |
+| x402 Payment Safety | [docs/security/x402-payment-safety.md](docs/security/x402-payment-safety.md) |
+| ADRs (0001–0015) | [docs/adr/](docs/adr/) |
+| Incident Response | [docs/runbooks/incident-response.md](docs/runbooks/incident-response.md) |
+| Mainnet Launch | [docs/operations/mainnet-launch.md](docs/operations/mainnet-launch.md) |
 
 ## Development
 
-See [AGENTS.md](AGENTS.md) for coding agent rules and PR guidelines.
+See [AGENTS.md](AGENTS.md) for coding agent rules, non-negotiable invariants, and PR guidelines.
 
 ## License
 
