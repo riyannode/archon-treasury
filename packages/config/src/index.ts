@@ -1,17 +1,37 @@
-export interface AppConfig {
-  nodeEnv: "development" | "staging" | "production-testnet" | "production-mainnet";
-  port: number;
-  apiPort: number;
-  logLevel: string;
-  databaseUrl: string;
-}
+import { envSchema, type RawEnv } from "./env.js";
 
-export function loadConfig(): AppConfig {
+/**
+ * Fully typed, validated application configuration.
+ * Derived from the Zod env schema — single source of truth.
+ */
+export type AppConfig = {
+  nodeEnv: RawEnv["NODE_ENV"];
+  port: number;
+  logLevel: RawEnv["LOG_LEVEL"];
+  databaseUrl?: string;
+  circleApiKey?: string;
+};
+
+/**
+ * Parse environment variables and return a validated AppConfig.
+ *
+ * Fail-fast: throws ZodError if required values are missing or malformed.
+ * Call once at process startup — not per-request.
+ */
+export function loadConfig(
+  source: Record<string, unknown> = process.env,
+): AppConfig {
+  const env = envSchema.parse(source);
+
   return {
-    nodeEnv: (process.env["NODE_ENV"] as AppConfig["nodeEnv"]) ?? "development",
-    port: Number(process.env["PORT"] ?? 3000),
-    apiPort: Number(process.env["API_PORT"] ?? 3002),
-    logLevel: process.env["LOG_LEVEL"] ?? "info",
-    databaseUrl: process.env["DATABASE_URL"] ?? "",
+    nodeEnv: env.NODE_ENV,
+    port: env.PORT,
+    logLevel: env.LOG_LEVEL,
+    ...(env.DATABASE_URL !== undefined && { databaseUrl: env.DATABASE_URL }),
+    ...(env.CIRCLE_API_KEY !== undefined && { circleApiKey: env.CIRCLE_API_KEY }),
   };
 }
+
+// Re-export env utilities for downstream consumers
+export { envSchema, parseEnv } from "./env.js";
+export type { RawEnv } from "./env.js";
