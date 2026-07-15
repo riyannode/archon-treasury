@@ -3,7 +3,7 @@
   "private": true,
   "description": "Policy, intelligence, approval, and execution control plane for crosschain USDC treasury operations",
   "engines": {
-    "node": ">=22",
+    "node": ">=20",
     "pnpm": ">=9"
   },
   "scripts": {
@@ -13,6 +13,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
+    "test:unit": "vitest run",
     "test:watch": "vitest",
     "clean": "pnpm -r run clean && rm -rf node_modules"
   },
