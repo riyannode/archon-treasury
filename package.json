@@ -9,7 +9,7 @@
   "scripts": {
     "dev": "pnpm -r --parallel run dev",
     "build": "pnpm --filter './apps/**' --filter './packages/**' run build",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "pnpm --filter './packages/**' run build && pnpm -r run typecheck",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",

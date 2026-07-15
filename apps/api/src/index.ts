@@ -1,8 +1,11 @@
+import { loadConfig } from "@archon-treasury/config";
 import { createApp } from "./app.js";
 
-const port = Number(process.env["PORT"] ?? 3002);
-
+const config = loadConfig();
 const app = createApp();
-app.listen(port, () => {
-  console.log(`Archon Treasury API listening on :${port}`);
+
+app.listen(config.port, () => {
+  console.log(
+    `[${config.nodeEnv}] Archon Treasury API listening on :${config.port}`,
+  );
 });
