@@ -390,6 +390,37 @@ describe("integration: update organization", () => {
 
     await expect(repo.update({ id })).rejects.toThrow(/empty/i);
   });
+
+  it("updated result has Date timestamps (not string)", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("date-types-update");
+    await repo.create({ id, name: "DateTypes", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const updated = await repo.update({ id, name: "DateTypesUpdated" });
+
+    expect(updated.createdAt).toBeInstanceOf(Date);
+    expect(updated.updatedAt).toBeInstanceOf(Date);
+    expect(updated.createdAt.getTime()).not.toBeNaN();
+    expect(updated.updatedAt.getTime()).not.toBeNaN();
+  });
+
+  it("unchanged/no-op result has Date timestamps (not string)", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("date-types-noop");
+    const created = await repo.create({ id, name: "DateNoop", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const unchanged = await repo.update({ id, name: "DateNoop" });
+
+    expect(unchanged.createdAt).toBeInstanceOf(Date);
+    expect(unchanged.updatedAt).toBeInstanceOf(Date);
+    expect(unchanged.createdAt.getTime()).not.toBeNaN();
+    expect(unchanged.updatedAt.getTime()).not.toBeNaN();
+    // No-op preserves original timestamps
+    expect(unchanged.createdAt.getTime()).toBe(created.createdAt.getTime());
+    expect(unchanged.updatedAt.getTime()).toBe(created.updatedAt.getTime());
+  });
 });
 
 // ── Transaction ───────────────────────────────────────────────────────────

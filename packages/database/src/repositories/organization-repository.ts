@@ -59,17 +59,6 @@ function rowToOrganization(row: OrganizationRow): Organization {
   return { id, name, slug, status, createdAt: row.createdAt, updatedAt: row.updatedAt };
 }
 
-function rowFromJson(raw: Record<string, unknown>): OrganizationRow {
-  return {
-    id: raw["id"] as string,
-    name: raw["name"] as string,
-    slug: raw["slug"] as string,
-    status: raw["status"] as "active" | "suspended",
-    createdAt: raw["created_at"] as Date,
-    updatedAt: raw["updated_at"] as Date,
-  };
-}
-
 // ── Repository ────────────────────────────────────────────────────────────
 
 export class PgOrganizationRepository implements OrganizationRepository {
@@ -149,10 +138,10 @@ export class PgOrganizationRepository implements OrganizationRepository {
     // ── Single atomic CTE — exactly one round trip ──────────────────────
     // current_row: the existing row for outcome determination
     // do_update: conditional UPDATE only when at least one value differs
-    // SELECT returns exactly one row: outcome ('updated'|'unchanged'|'not_found')
-    //   and the organization as JSON (updated row if updated, current if unchanged)
+    // SELECT returns typed columns (not JSON) so node-postgres maps
+    // timestamptz → Date correctly at the driver level.
     //
-    // Column names ("name", "slug", "status") are hardcoded here, never from caller input.
+    // Column names ("name", "slug", "status") are hardcoded, never from caller input.
     try {
       const result = await this.db.execute(sql`
         WITH current_row AS (
@@ -167,37 +156,41 @@ export class PgOrganizationRepository implements OrganizationRepository {
         )
         SELECT
           CASE
-            WHEN EXISTS (SELECT 1 FROM do_update) THEN 'updated'::text
-            WHEN EXISTS (SELECT 1 FROM current_row) THEN 'unchanged'::text
+            WHEN d."id" IS NOT NULL THEN 'updated'::text
+            WHEN c."id" IS NOT NULL THEN 'unchanged'::text
             ELSE 'not_found'::text
           END AS outcome,
-          COALESCE(
-            (SELECT row_to_json(t.*) FROM do_update t),
-            (SELECT row_to_json(t.*) FROM current_row t)
-          ) AS organization
+          COALESCE(d."id", c."id") AS id,
+          COALESCE(d."name", c."name") AS name,
+          COALESCE(d."slug", c."slug") AS slug,
+          COALESCE(d."status", c."status") AS status,
+          COALESCE(d."created_at", c."created_at") AS created_at,
+          COALESCE(d."updated_at", c."updated_at") AS updated_at
+        FROM (SELECT 1) AS _dummy
+        LEFT JOIN do_update d ON true
+        LEFT JOIN current_row c ON true
       `);
 
-      const rows = result.rows as Array<{ outcome: string; organization: Record<string, unknown> }>;
-      const first = rows[0];
-
+      const first = result.rows[0] as Record<string, unknown> | undefined;
       if (!first) throw organizationNotFoundError(idStr);
 
-      switch (first.outcome) {
-        case "updated": {
-          const raw = first.organization;
-          if (!raw) throw organizationPersistenceError("update returned null organization");
-          return rowToOrganization(rowFromJson(raw));
-        }
-        case "unchanged": {
-          const raw = first.organization;
-          if (!raw) throw organizationPersistenceError("unchanged returned null organization");
-          return rowToOrganization(rowFromJson(raw));
-        }
-        case "not_found":
-          throw organizationNotFoundError(idStr);
-        default:
-          throw organizationPersistenceError(`unexpected outcome: ${first.outcome}`);
+      const outcome = first["outcome"] as string;
+
+      if (outcome === "not_found") {
+        throw organizationNotFoundError(idStr);
       }
+
+      // Direct typed columns — node-postgres returns timestamptz as Date
+      const row: OrganizationRow = {
+        id: first["id"] as string,
+        name: first["name"] as string,
+        slug: first["slug"] as string,
+        status: first["status"] as "active" | "suspended",
+        createdAt: first["created_at"] as Date,
+        updatedAt: first["updated_at"] as Date,
+      };
+
+      return rowToOrganization(row);
     } catch (error: unknown) {
       if (isSlugUniqueViolation(error)) {
         throw organizationSlugConflictError(
