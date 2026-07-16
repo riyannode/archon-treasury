@@ -1,0 +1,47 @@
+# Dependencies
+node_modules
+.pnpm-store
+
+# Build output (rebuilt inside Docker)
+apps/*/dist
+packages/*/dist
+*.tsbuildinfo
+
+# Environment & secrets
+.env
+.env.*
+!.env.example
+
+# Git
+.git
+.gitignore
+
+# CI/CD
+.github
+
+# Test & coverage
+*.test.*
+*.spec.*
+__tests__
+coverage
+.nyc_output
+
+# IDE & editor
+.vscode
+.idea
+*.swp
+*.swo
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore
+
+# Documentation
+docs
+*.md
+LICENSE
+
+# OS
+.DS_Store
+Thumbs.db

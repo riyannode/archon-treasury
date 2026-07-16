@@ -15,7 +15,7 @@ concurrency:
 
 env:
   NODE_VERSION: "22"
-  PNPM_VERSION: "9"
+  PNPM_VERSION: "9.15.9"
 
 jobs:
   lint:
@@ -66,7 +66,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/archon_treasury_test
+      DATABASE_URL: postgresql://postgres:***@localhost:5432/archon_treasury_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -94,3 +94,90 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm build
+
+  docker-build:
+    name: Docker Build
+    runs-on: ubuntu-latest
+    needs: [lint, typecheck, test]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f infra/containers/Dockerfile.api \
+            -t archon-treasury-api:ci \
+            .
+      - name: Verify dist structure
+        run: |
+          docker run --rm archon-treasury-api:ci sh -c '
+            echo "--- apps/api/dist/ ---"
+            ls apps/api/dist/
+            echo "--- index.js exists? ---"
+            test -f apps/api/dist/index.js && echo "YES" || echo "MISSING"
+            echo "--- packages/config/dist/ ---"
+            ls packages/config/dist/
+            echo "--- packages/domain/dist/ ---"
+            ls packages/domain/dist/
+            echo "--- packages/observability/dist/ ---"
+            ls packages/observability/dist/
+          '
+      - name: Report image size
+        run: |
+          SIZE=$(docker image inspect archon-treasury-api:ci --format '{{.Size}}' | awk '{printf "%.1f MB", $1/1024/1024}')
+          echo "Docker image size: $SIZE"
+
+  docker-test:
+    name: Container Health Test
+    runs-on: ubuntu-latest
+    needs: [docker-build]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build Docker image
+        run: |
+          docker build \
+            -f infra/containers/Dockerfile.api \
+            -t archon-treasury-api:ci \
+            .
+      - name: Start container
+        run: |
+          docker run -d \
+            --name archon-treasury-api-test \
+            -p 3099:3000 \
+            archon-treasury-api:ci
+      - name: Wait for API readiness
+        run: |
+          echo "Waiting for API to be ready..."
+          for i in $(seq 1 30); do
+            if curl -sf http://localhost:3099/ > /dev/null 2>&1; then
+              echo "API ready after ${i}s"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "API failed to start within 30s"
+          docker logs archon-treasury-api-test
+          exit 1
+      - name: Validate health endpoint
+        run: |
+          RESPONSE=$(curl -sf http://localhost:3099/)
+          echo "Response: $RESPONSE"
+
+          # HTTP 200
+          STATUS=$(curl -sf -o /dev/null -w '%{http_code}' http://localhost:3099/)
+          [ "$STATUS" = "200" ] || { echo "FAIL: HTTP $STATUS, expected 200"; exit 1; }
+          echo "✓ HTTP 200"
+
+          # JSON status ok
+          echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['status']=='ok'" || { echo "FAIL: status != ok"; exit 1; }
+          echo "✓ status ok"
+
+          # service archon-treasury-api
+          echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d['service']=='archon-treasury-api'" || { echo "FAIL: service != archon-treasury-api"; exit 1; }
+          echo "✓ service archon-treasury-api"
+
+          echo "All health checks passed"
+      - name: Cleanup container
+        if: always()
+        run: |
+          docker stop archon-treasury-api-test 2>/dev/null || true
+          docker rm archon-treasury-api-test 2>/dev/null || true
