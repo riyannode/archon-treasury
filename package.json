@@ -2,6 +2,7 @@
   "name": "archon-treasury",
   "private": true,
   "description": "Policy, intelligence, approval, and execution control plane for crosschain USDC treasury operations",
+  "packageManager": "pnpm@9.15.9",
   "engines": {
     "node": ">=22",
     "pnpm": ">=9"
