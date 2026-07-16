@@ -10,11 +10,11 @@ import {
   TreasuryId,
   WalletId,
   // Chain
-  SUPPORTED_CHAINS,
+  KNOWN_CHAIN_KEYS,
   parseChainKey,
   safeParseChainKey,
   isChainKey,
-  supportedChains,
+  knownChainKeys,
   // Asset
   SUPPORTED_ASSETS,
   parseAssetId,
@@ -57,22 +57,37 @@ describe("Money (USDC)", () => {
 
 // ── Typed Identifiers ────────────────────────────────────────────────────────
 
-const VALID_UUID = "550e8400-e29b-41d4-a716-446655440000";
-const VALID_UUID_2 = "6ba7b810-9dad-41d4-80b4-00c04fd430c8";
+// UUID v4 (version nibble = 4, variant bits = 10xx)
+const UUID_V4 = "550e8400-e29b-41d4-a716-446655440000";
+const UUID_V4_2 = "6ba7b810-9dad-41d4-80b4-00c04fd430c8";
+
+// UUID v7 (version nibble = 7, variant bits = 10xx)
+const UUID_V7 = "0190e4f8-8c12-7abc-9def-0123456789ab";
+
+// UUID v1 (version nibble = 1, should be rejected)
+const UUID_V1 = "6ba7b810-9dad-1101-80b4-00c04fd430c8";
+
+// Malformed UUID (wrong variant bits — 0xxx instead of 10xx)
+const MALFORMED_VARIANT = "550e8400-e29b-41d4-0716-446655440000";
 
 describe("Typed Identifiers", () => {
   describe("UserId", () => {
-    it("parses a valid UUID", () => {
-      const id = UserId.parse(VALID_UUID);
-      expect(id).toBe(VALID_UUID);
+    it("parses a valid UUID v4", () => {
+      const id = UserId.parse(UUID_V4);
+      expect(id).toBe(UUID_V4);
+    });
+
+    it("parses a valid UUID v7", () => {
+      const id = UserId.parse(UUID_V7);
+      expect(id).toBe(UUID_V7);
     });
 
     it("serializes back to string", () => {
-      const id = UserId.parse(VALID_UUID);
-      expect(UserId.serialize(id)).toBe(VALID_UUID);
+      const id = UserId.parse(UUID_V4);
+      expect(UserId.serialize(id)).toBe(UUID_V4);
     });
 
-    it("rejects invalid UUID (not v4)", () => {
+    it("rejects malformed UUID (not a UUID at all)", () => {
       expect(() => UserId.parse("not-a-uuid")).toThrow("Invalid UserId");
     });
 
@@ -80,9 +95,23 @@ describe("Typed Identifiers", () => {
       expect(() => UserId.parse("")).toThrow("Invalid UserId");
     });
 
-    it("rejects UUID v1 format", () => {
+    it("rejects UUID v1 (unsupported version)", () => {
+      expect(() => UserId.parse(UUID_V1)).toThrow("Invalid UserId");
+    });
+
+    it("rejects UUID with invalid variant bits", () => {
+      expect(() => UserId.parse(MALFORMED_VARIANT)).toThrow("Invalid UserId");
+    });
+
+    it("rejects UUID with wrong segment lengths", () => {
       expect(() =>
-        UserId.parse("6ba7b810-9dad-1101-80b4-00c04fd430c8"),
+        UserId.parse("550e8400-e29-41d4-a716-446655440000"),
+      ).toThrow("Invalid UserId");
+    });
+
+    it("rejects UUID with non-hex characters", () => {
+      expect(() =>
+        UserId.parse("550e8400-e29b-41d4-a71g-446655440000"),
       ).toThrow("Invalid UserId");
     });
 
@@ -90,13 +119,22 @@ describe("Typed Identifiers", () => {
       expect(UserId.safe("bad")).toBeNull();
     });
 
-    it("safe parse returns id on valid", () => {
-      const id = UserId.safe(VALID_UUID);
-      expect(id).toBe(VALID_UUID);
+    it("safe parse returns id on valid v4", () => {
+      const id = UserId.safe(UUID_V4);
+      expect(id).toBe(UUID_V4);
     });
 
-    it("is() returns true for valid UUID", () => {
-      expect(UserId.is(VALID_UUID)).toBe(true);
+    it("safe parse returns id on valid v7", () => {
+      const id = UserId.safe(UUID_V7);
+      expect(id).toBe(UUID_V7);
+    });
+
+    it("is() returns true for valid UUID v4", () => {
+      expect(UserId.is(UUID_V4)).toBe(true);
+    });
+
+    it("is() returns true for valid UUID v7", () => {
+      expect(UserId.is(UUID_V7)).toBe(true);
     });
 
     it("is() returns false for non-string", () => {
@@ -109,9 +147,14 @@ describe("Typed Identifiers", () => {
   });
 
   describe("OrganizationId", () => {
-    it("parses a valid UUID", () => {
-      const id = OrganizationId.parse(VALID_UUID);
-      expect(id).toBe(VALID_UUID);
+    it("parses a valid UUID v4", () => {
+      const id = OrganizationId.parse(UUID_V4);
+      expect(id).toBe(UUID_V4);
+    });
+
+    it("parses a valid UUID v7", () => {
+      const id = OrganizationId.parse(UUID_V7);
+      expect(id).toBe(UUID_V7);
     });
 
     it("rejects invalid UUID", () => {
@@ -122,9 +165,14 @@ describe("Typed Identifiers", () => {
   });
 
   describe("TreasuryId", () => {
-    it("parses a valid UUID", () => {
-      const id = TreasuryId.parse(VALID_UUID);
-      expect(id).toBe(VALID_UUID);
+    it("parses a valid UUID v4", () => {
+      const id = TreasuryId.parse(UUID_V4);
+      expect(id).toBe(UUID_V4);
+    });
+
+    it("parses a valid UUID v7", () => {
+      const id = TreasuryId.parse(UUID_V7);
+      expect(id).toBe(UUID_V7);
     });
 
     it("rejects invalid UUID", () => {
@@ -133,9 +181,14 @@ describe("Typed Identifiers", () => {
   });
 
   describe("WalletId", () => {
-    it("parses a valid UUID", () => {
-      const id = WalletId.parse(VALID_UUID);
-      expect(id).toBe(VALID_UUID);
+    it("parses a valid UUID v4", () => {
+      const id = WalletId.parse(UUID_V4);
+      expect(id).toBe(UUID_V4);
+    });
+
+    it("parses a valid UUID v7", () => {
+      const id = WalletId.parse(UUID_V7);
+      expect(id).toBe(UUID_V7);
     });
 
     it("rejects invalid UUID", () => {
@@ -144,9 +197,9 @@ describe("Typed Identifiers", () => {
   });
 
   describe("Type isolation", () => {
-    it("OrganizationId cannot be used as TreasuryId at runtime", () => {
-      const orgId = OrganizationId.parse(VALID_UUID);
-      const treasuryId = TreasuryId.parse(VALID_UUID_2);
+    it("OrganizationId and TreasuryId hold different values", () => {
+      const orgId = OrganizationId.parse(UUID_V4);
+      const treasuryId = TreasuryId.parse(UUID_V4_2);
 
       // At runtime, both are just strings — the isolation is at the type level.
       // This test documents that they ARE different values.
@@ -162,11 +215,24 @@ describe("Typed Identifiers", () => {
     });
 
     it("all identifiers accept valid UUID v4", () => {
-      const valid = VALID_UUID;
-      expect(UserId.parse(valid)).toBe(valid);
-      expect(OrganizationId.parse(valid)).toBe(valid);
-      expect(TreasuryId.parse(valid)).toBe(valid);
-      expect(WalletId.parse(valid)).toBe(valid);
+      expect(UserId.parse(UUID_V4)).toBe(UUID_V4);
+      expect(OrganizationId.parse(UUID_V4)).toBe(UUID_V4);
+      expect(TreasuryId.parse(UUID_V4)).toBe(UUID_V4);
+      expect(WalletId.parse(UUID_V4)).toBe(UUID_V4);
+    });
+
+    it("all identifiers accept valid UUID v7", () => {
+      expect(UserId.parse(UUID_V7)).toBe(UUID_V7);
+      expect(OrganizationId.parse(UUID_V7)).toBe(UUID_V7);
+      expect(TreasuryId.parse(UUID_V7)).toBe(UUID_V7);
+      expect(WalletId.parse(UUID_V7)).toBe(UUID_V7);
+    });
+
+    it("all identifiers reject UUID v1", () => {
+      expect(() => UserId.parse(UUID_V1)).toThrow();
+      expect(() => OrganizationId.parse(UUID_V1)).toThrow();
+      expect(() => TreasuryId.parse(UUID_V1)).toThrow();
+      expect(() => WalletId.parse(UUID_V1)).toThrow();
     });
   });
 });
@@ -174,6 +240,7 @@ describe("Typed Identifiers", () => {
 // ── ChainKey ─────────────────────────────────────────────────────────────────
 
 describe("ChainKey", () => {
+  // Known chain key tests
   it("parses ETHEREUM_SEPOLIA", () => {
     expect(parseChainKey("ETHEREUM_SEPOLIA")).toBe("ETHEREUM_SEPOLIA");
   });
@@ -182,46 +249,49 @@ describe("ChainKey", () => {
     expect(parseChainKey("ARC_TESTNET")).toBe("ARC_TESTNET");
   });
 
-  it("parses all supported chains", () => {
+  it("parses all 4 known chain keys", () => {
     expect(parseChainKey("ETHEREUM_SEPOLIA")).toBe("ETHEREUM_SEPOLIA");
     expect(parseChainKey("BASE_SEPOLIA")).toBe("BASE_SEPOLIA");
     expect(parseChainKey("OP_SEPOLIA")).toBe("OP_SEPOLIA");
     expect(parseChainKey("ARC_TESTNET")).toBe("ARC_TESTNET");
   });
 
-  it("rejects unsupported chain", () => {
+  // Rejection tests
+  it("rejects unknown chain key", () => {
     expect(() => parseChainKey("POLYGON_MAINNET")).toThrow(
-      "Unsupported ChainKey",
+      "Unknown ChainKey",
     );
   });
 
   it("rejects arbitrary string", () => {
-    expect(() => parseChainKey("random")).toThrow("Unsupported ChainKey");
+    expect(() => parseChainKey("random")).toThrow("Unknown ChainKey");
   });
 
   it("rejects empty string", () => {
-    expect(() => parseChainKey("")).toThrow("Unsupported ChainKey");
+    expect(() => parseChainKey("")).toThrow("Unknown ChainKey");
   });
 
-  it("rejects lowercase variant", () => {
+  it("rejects lowercase variant (case-sensitive)", () => {
     expect(() => parseChainKey("ethereum_sepolia")).toThrow(
-      "Unsupported ChainKey",
+      "Unknown ChainKey",
     );
   });
 
-  it("safe parse returns null on unsupported", () => {
+  // Safe parse
+  it("safe parse returns null on unknown", () => {
     expect(safeParseChainKey("POLYGON")).toBeNull();
   });
 
-  it("safe parse returns chain on supported", () => {
+  it("safe parse returns chain on known", () => {
     expect(safeParseChainKey("ARC_TESTNET")).toBe("ARC_TESTNET");
   });
 
-  it("isChainKey returns true for supported", () => {
+  // Type guard
+  it("isChainKey returns true for known", () => {
     expect(isChainKey("ARC_TESTNET")).toBe(true);
   });
 
-  it("isChainKey returns false for unsupported", () => {
+  it("isChainKey returns false for unknown", () => {
     expect(isChainKey("POLYGON")).toBe(false);
   });
 
@@ -229,12 +299,27 @@ describe("ChainKey", () => {
     expect(isChainKey(42)).toBe(false);
   });
 
-  it("supportedChains() returns all 4 chains", () => {
-    expect(supportedChains()).toHaveLength(4);
+  // Listing
+  it("knownChainKeys() returns exactly 4 values", () => {
+    expect(knownChainKeys()).toHaveLength(4);
   });
 
-  it("SUPPORTED_CHAINS has exactly 4 entries", () => {
-    expect(Object.keys(SUPPORTED_CHAINS)).toHaveLength(4);
+  it("KNOWN_CHAIN_KEYS has exactly 4 entries", () => {
+    expect(Object.keys(KNOWN_CHAIN_KEYS)).toHaveLength(4);
+  });
+
+  // Known chain keys ≠ runtime capability
+  it("known chain keys are domain identifiers, not runtime capability claims", () => {
+    // A chain key being "known" only means it is recognized by the domain model.
+    // It does NOT imply that RPC endpoints, Circle integration, bridge support,
+    // route engine support, or any provider is configured or available.
+    // Operational capability is determined by the chain/provider registry.
+    const known = knownChainKeys();
+    expect(known).toContain("ETHEREUM_SEPOLIA");
+    expect(known).toContain("ARC_TESTNET");
+    // This is a documentation test — the assertion is intentional.
+    // If someone adds a chain to KNOWN_CHAIN_KEYS, this test reminds them
+    // that "known" ≠ "operational".
   });
 });
 

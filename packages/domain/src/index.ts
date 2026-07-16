@@ -41,11 +41,11 @@ export {
 
 export type { ChainKey } from "./chain.js";
 export {
-  SUPPORTED_CHAINS,
+  KNOWN_CHAIN_KEYS,
   parseChainKey,
   safeParseChainKey,
   isChainKey,
-  supportedChains,
+  knownChainKeys,
 } from "./chain.js";
 
 // ── Asset Identifier ──────────────────────────────────────────────────────

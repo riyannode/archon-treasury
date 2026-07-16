@@ -1,54 +1,58 @@
 // ── Chain Key ────────────────────────────────────────────────────────────────
-// Typed enum-like values for supported blockchain chains.
-// Rejects unsupported chains, does not accept arbitrary strings.
-// Easily extensible by adding to the SUPPORTED_CHAINS map.
+// Known chain keys in the domain model.
+// "Known" means the key is valid for identification and routing logic.
+// It does NOT imply that RPC, Circle, bridge, route, or provider support
+// is available — operational capability is determined later by the
+// chain/provider registry.
+//
+// Easily extensible by adding to the KNOWN_CHAIN_KEYS map.
 
-export const SUPPORTED_CHAINS = {
+export const KNOWN_CHAIN_KEYS = {
   ETHEREUM_SEPOLIA: "ETHEREUM_SEPOLIA",
   BASE_SEPOLIA: "BASE_SEPOLIA",
   OP_SEPOLIA: "OP_SEPOLIA",
   ARC_TESTNET: "ARC_TESTNET",
 } as const;
 
-export type ChainKey = (typeof SUPPORTED_CHAINS)[keyof typeof SUPPORTED_CHAINS];
+export type ChainKey = (typeof KNOWN_CHAIN_KEYS)[keyof typeof KNOWN_CHAIN_KEYS];
 
-const SUPPORTED_CHAIN_SET = new Set<string>(
-  Object.values(SUPPORTED_CHAINS),
+const KNOWN_CHAIN_KEY_SET = new Set<string>(
+  Object.values(KNOWN_CHAIN_KEYS),
 );
 
 /**
  * Parse a string into a ChainKey.
- * @throws if the chain is not supported.
+ * @throws if the chain key is not in the known set.
  */
 export function parseChainKey(value: string): ChainKey {
-  if (!SUPPORTED_CHAIN_SET.has(value)) {
+  if (!KNOWN_CHAIN_KEY_SET.has(value)) {
     throw new Error(
-      `Unsupported ChainKey: "${value}". Supported: ${Object.values(SUPPORTED_CHAINS).join(", ")}`,
+      `Unknown ChainKey: \"${value}\". Known: ${Object.values(KNOWN_CHAIN_KEYS).join(", ")}`,
     );
   }
   return value as ChainKey;
 }
 
 /**
- * Safe parse — returns null on unsupported chain.
+ * Safe parse — returns null on unknown chain key.
  */
 export function safeParseChainKey(value: string): ChainKey | null {
-  if (!SUPPORTED_CHAIN_SET.has(value)) {
+  if (!KNOWN_CHAIN_KEY_SET.has(value)) {
     return null;
   }
   return value as ChainKey;
 }
 
 /**
- * Check if a value is a valid ChainKey.
+ * Check if a value is a known ChainKey.
  */
 export function isChainKey(value: unknown): value is ChainKey {
-  return typeof value === "string" && SUPPORTED_CHAIN_SET.has(value);
+  return typeof value === "string" && KNOWN_CHAIN_KEY_SET.has(value);
 }
 
 /**
- * List all supported chain keys.
+ * List all known chain keys.
  */
-export function supportedChains(): readonly ChainKey[] {
-  return Object.values(SUPPORTED_CHAINS);
+export function knownChainKeys(): readonly ChainKey[] {
+  return Object.values(KNOWN_CHAIN_KEYS);
 }
