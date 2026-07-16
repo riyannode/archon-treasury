@@ -92,7 +92,6 @@ export type {
 export {
   OrganizationSlug,
   normalizeSlug,
-  findInvalidSlugChars,
 } from "./organization-slug.js";
 
 // Domain errors

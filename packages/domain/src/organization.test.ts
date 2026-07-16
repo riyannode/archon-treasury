@@ -2,7 +2,6 @@ import { describe, it, expect } from "vitest";
 import {
   OrganizationSlug,
   normalizeSlug,
-  findInvalidSlugChars,
 } from "./organization-slug.js";
 import {
   OrganizationStatus,
@@ -69,16 +68,18 @@ describe("OrganizationSlug", () => {
       expect(OrganizationSlug.parse("archon_labs")).toBe("archon-labs");
     });
 
-    it("collapses consecutive hyphens", () => {
-      expect(OrganizationSlug.parse("archon--labs")).toBe("archon-labs");
+    it("collapses consecutive separators into one hyphen", () => {
+      expect(OrganizationSlug.parse("archon__labs")).toBe("archon-labs");
+      expect(OrganizationSlug.parse("Archon  Labs")).toBe("archon-labs");
+      expect(OrganizationSlug.parse("Archon _Labs")).toBe("archon-labs");
     });
 
-    it("strips leading hyphens", () => {
-      expect(OrganizationSlug.parse("-archon")).toBe("archon");
-    });
-
-    it("strips trailing hyphens", () => {
-      expect(OrganizationSlug.parse("archon-")).toBe("archon");
+    it("strips leading/trailing separators", () => {
+      expect(OrganizationSlug.parse(" archon ")).toBe("archon");
+      expect(OrganizationSlug.parse("_archon_")).toBe("archon");
+      expect(OrganizationSlug.parse("-archon-")).toBe("archon");
+      expect(OrganizationSlug.parse("  _ archon _  ")).toBe("archon");
+      expect(OrganizationSlug.parse("---archon---")).toBe("archon");
     });
 
     it("accepts digits", () => {
@@ -131,20 +132,37 @@ describe("OrganizationSlug", () => {
       expect(() => OrganizationSlug.parse("!!!")).toThrow(ValidationError);
     });
 
-    it("rejects string longer than 63 chars — ValidationError", () => {
-      expect(() => OrganizationSlug.parse("a".repeat(64))).toThrow(ValidationError);
-    });
-  });
-
-  describe("findInvalidSlugChars", () => {
-    it("returns null for valid slug", () => {
-      expect(findInvalidSlugChars("archon-labs")).toBeNull();
+    it("consecutive hyphens collapse in raw input", () => {
+      // Hyphens are separators → consecutive collapse
+      expect(normalizeSlug("a--b")).toBe("a-b");
+      expect(normalizeSlug("a---b")).toBe("a-b");
     });
 
-    it("returns the invalid character for invalid input", () => {
-      expect(findInvalidSlugChars("archon!")).toBe("!");
-      expect(findInvalidSlugChars("pay$labs")).toBe("$");
-      expect(findInvalidSlugChars("a/b")).toBe("/");
+    it("tab is rejected", () => {
+      expect(normalizeSlug("archon\tlabs")).toBeNull();
+      expect(() => OrganizationSlug.parse("archon\tlabs")).toThrow(ValidationError);
+    });
+
+    it("newline is rejected", () => {
+      expect(normalizeSlug("archon\nlabs")).toBeNull();
+      expect(() => OrganizationSlug.parse("archon\nlabs")).toThrow(ValidationError);
+    });
+
+    it("carriage return is rejected", () => {
+      expect(normalizeSlug("archon\rlabs")).toBeNull();
+    });
+
+    it("Unicode whitespace is rejected", () => {
+      expect(normalizeSlug("archon\u00A0labs")).toBeNull(); // non-breaking space
+      expect(normalizeSlug("archon\u2003labs")).toBeNull(); // em space
+    });
+
+    it("leading hyphens are stripped (hyphen is separator)", () => {
+      expect(normalizeSlug("-archon")).toBe("archon");
+    });
+
+    it("trailing hyphens are stripped (hyphen is separator)", () => {
+      expect(normalizeSlug("archon-")).toBe("archon");
     });
   });
 
@@ -217,8 +235,84 @@ describe("OrganizationSlug", () => {
       expect(normalizeSlug("   ")).toBeNull();
     });
 
-    it("preserves valid hyphens", () => {
-      expect(normalizeSlug("a-b-c")).toBe("a-b-c");
+    it("preserves valid hyphens in canonical output", () => {
+      expect(normalizeSlug("a b")).toBe("a-b");
+      expect(normalizeSlug("a-b")).toBe("a-b");
+      expect(normalizeSlug("a--b")).toBe("a-b");
+    });
+  });
+
+  describe("security regression", () => {
+    it("rejects 10000+ hyphens fast via raw length limit", () => {
+      const start = performance.now();
+      const result = normalizeSlug("-".repeat(10000));
+      const elapsed = performance.now() - start;
+      expect(result).toBeNull();
+      expect(elapsed).toBeLessThan(50); // should be instant
+    });
+
+    it("accepts input at 256 chars boundary", () => {
+      // 256 lowercase letters → valid raw, but result must be ≤ 63
+      const raw256 = "a".repeat(256);
+      expect(normalizeSlug(raw256)).toBeNull(); // > 63 output
+    });
+
+    it("rejects 257-character input", () => {
+      expect(normalizeSlug("a".repeat(257))).toBeNull();
+    });
+
+    it("rejects 256-character input with invalid chars", () => {
+      const raw = "a".repeat(255) + "!";
+      expect(normalizeSlug(raw)).toBeNull();
+    });
+
+    it("consecutive separators collapse for small valid input", () => {
+      expect(normalizeSlug("a  b  c")).toBe("a-b-c");
+      expect(normalizeSlug("a__b__c")).toBe("a-b-c");
+      expect(normalizeSlug("a _ b _ c")).toBe("a-b-c");
+    });
+
+    it("leading/trailing separators are stripped", () => {
+      expect(normalizeSlug(" a ")).toBe("a");
+      expect(normalizeSlug("_a_")).toBe("a");
+      expect(normalizeSlug("  _  a  _  ")).toBe("a");
+    });
+
+    it("punctuation and Unicode are rejected", () => {
+      expect(normalizeSlug("hello@world")).toBeNull();
+      expect(normalizeSlug("café")).toBeNull();
+      expect(normalizeSlug("日本語")).toBeNull();
+      expect(normalizeSlug("emoji🚀")).toBeNull();
+    });
+
+    it("tab and newline are rejected", () => {
+      expect(normalizeSlug("a\tb")).toBeNull();
+      expect(normalizeSlug("a\nb")).toBeNull();
+      expect(normalizeSlug("a\rb")).toBeNull();
+    });
+
+    it("result never exceeds 63 characters", () => {
+      // Input with spaces that would collapse
+      const result = normalizeSlug("a".repeat(63));
+      expect(result).not.toBeNull();
+      expect(result!.length).toBeLessThanOrEqual(63);
+
+      // Input with separators
+      const result2 = normalizeSlug("a b".repeat(21)); // 63 chars input
+      if (result2 !== null) {
+        expect(result2.length).toBeLessThanOrEqual(63);
+      }
+    });
+
+    it("error messages do not include attacker input", () => {
+      const maliciousInput = "<script>alert('xss')</script>";
+      try {
+        OrganizationSlug.parse(maliciousInput);
+        expect.fail("should have thrown");
+      } catch (e: unknown) {
+        expect(e).toBeInstanceOf(ValidationError);
+        expect((e as Error).message).not.toContain(maliciousInput);
+      }
     });
   });
 });
