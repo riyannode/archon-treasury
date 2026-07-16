@@ -118,8 +118,6 @@ jobs:
           # Service container starts with archon_treasury_test DB (empty)
           # Run committed baseline migration
           pnpm --filter @archon-treasury/database db:migrate
-      - name: Run database integration tests
-        run: pnpm --filter @archon-treasury/database test:integration
       - name: Verify migration metadata recorded
         run: |
           # Verify __drizzle_migrations table exists with exactly 1 row
@@ -138,6 +136,8 @@ jobs:
           echo "Migration records after rerun: $COUNT"
           [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record after rerun, got $COUNT"; exit 1; }
           echo "✓ Migration rerun is idempotent (still 1 record)"
+      - name: Run database integration tests
+        run: pnpm --filter @archon-treasury/database test:integration
 
   build:
     name: Build
