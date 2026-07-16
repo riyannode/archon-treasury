@@ -1,44 +1,38 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { connectDatabase, closeDatabase, checkDatabaseHealth } from "./index.js";
 import type { DatabaseConfig } from "./config.js";
 
-const testConfig: DatabaseConfig = {
-  databaseUrl:
-    process.env["DATABASE_URL"] ??
-    "postgresql://postgres:***@localhost:5432/archon_treasury_test",
+const badConfig: DatabaseConfig = {
+  databaseUrl: "postgresql://localhost:99999/nonexistent",
   poolMin: 0,
   poolMax: 5,
   idleTimeoutMs: 10_000,
-  connectionTimeoutMs: 5_000,
+  connectionTimeoutMs: 1_000,
   sslMode: "disable",
 };
 
 describe("database health check", () => {
-  beforeEach(async () => {
-    await closeDatabase();
-    connectDatabase(testConfig);
-  });
-
   afterEach(async () => {
     await closeDatabase();
   });
 
-  it("returns healthy with latencyMs", async () => {
-    const result = await checkDatabaseHealth();
-    expect(result.status).toBe("healthy");
-    expect(result.latencyMs).toBeGreaterThanOrEqual(0);
-    if (result.status === "healthy") {
-      expect(typeof result.latencyMs).toBe("number");
-    }
-  });
-
-  it("returns unhealthy when pool is not initialized", async () => {
+  it("getPool not initialized → unhealthy, not throw", async () => {
     await closeDatabase();
     const result = await checkDatabaseHealth();
     expect(result.status).toBe("unhealthy");
     if (result.status === "unhealthy") {
-      expect(result.reason).toBeDefined();
+      expect(result.reason).toContain("not initialized");
       expect(result.latencyMs).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it("returns unhealthy for invalid connection (pool.connect failure)", async () => {
+    connectDatabase(badConfig);
+    const result = await checkDatabaseHealth(2_000);
+    expect(result.status).toBe("unhealthy");
+    if (result.status === "unhealthy") {
+      expect(result.reason).toBeDefined();
+      expect(result.reason.length).toBeGreaterThan(0);
     }
   });
 });

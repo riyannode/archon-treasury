@@ -122,15 +122,22 @@ jobs:
         run: pnpm --filter @archon-treasury/database test:integration
       - name: Verify migration metadata recorded
         run: |
-          # Verify drizzle migration metadata table exists with our baseline
-          PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -c \
-            "SELECT tag FROM __drizzle_migrations ORDER BY idx LIMIT 1;" | grep -q "0000_baseline"
-          echo "✓ Migration metadata recorded"
+          # Verify __drizzle_migrations table exists with exactly 1 row
+          COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
+            "SELECT COUNT(*) FROM __drizzle_migrations;")
+          echo "Migration records after first run: $COUNT"
+          [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record, got $COUNT"; exit 1; }
+          echo "✓ Migration metadata recorded (1 record)"
       - name: Verify migration rerun is idempotent
         run: |
           # Running migration again should be a no-op
           pnpm --filter @archon-treasury/database db:migrate
-          echo "✓ Migration rerun is no-op"
+          # Verify count is still 1
+          COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
+            "SELECT COUNT(*) FROM __drizzle_migrations;")
+          echo "Migration records after rerun: $COUNT"
+          [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record after rerun, got $COUNT"; exit 1; }
+          echo "✓ Migration rerun is idempotent (still 1 record)"
 
   build:
     name: Build

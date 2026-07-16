@@ -1,57 +1,47 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { connectDatabase, closeDatabase, withTransaction } from "./index.js";
-import { sql } from "drizzle-orm";
-import type { DatabaseConfig } from "./config.js";
+import { describe, it, expect } from "vitest";
+import { buildDatabaseConfig } from "./config.js";
 
-const testConfig: DatabaseConfig = {
-  databaseUrl:
-    process.env["DATABASE_URL"] ??
-    "postgresql://postgres:***@localhost:5432/archon_treasury_test",
-  poolMin: 0,
-  poolMax: 5,
-  idleTimeoutMs: 10_000,
-  connectionTimeoutMs: 5_000,
-  sslMode: "disable",
-};
-
+/**
+ * Transaction unit tests — no PostgreSQL required.
+ * Real transaction commit/rollback tests are in integration.test.ts.
+ */
 describe("withTransaction", () => {
-  beforeEach(async () => {
-    await closeDatabase();
-    connectDatabase(testConfig);
+  it("exists and is importable", async () => {
+    const { withTransaction } = await import("./index.js");
+    expect(typeof withTransaction).toBe("function");
   });
+});
 
-  afterEach(async () => {
-    await closeDatabase();
-  });
-
-  it("commits when callback succeeds", async () => {
-    const result = await withTransaction(async (tx) => {
-      const r = await tx.execute(sql`SELECT 1 AS val`);
-      return r;
+describe("database config validation (unit)", () => {
+  it("sslMode disable accepted", () => {
+    const config = buildDatabaseConfig({
+      databaseUrl: "postgresql://localhost/db",
+      sslMode: "disable",
     });
-    expect(result).toBeDefined();
+    expect(config.sslMode).toBe("disable");
   });
 
-  it("rolls back when callback throws", async () => {
-    await expect(
-      withTransaction(async () => {
-        throw new Error("deliberate rollback");
-      }),
-    ).rejects.toThrow("deliberate rollback");
+  it("sslMode require accepted", () => {
+    const config = buildDatabaseConfig({
+      databaseUrl: "postgresql://localhost/db",
+      sslMode: "require",
+    });
+    expect(config.sslMode).toBe("require");
   });
 
-  it("preserves original error after rollback", async () => {
-    class CustomError extends Error {
-      constructor(message: string) {
-        super(message);
-        this.name = "CustomError";
-      }
-    }
+  it("defaults to disable when omitted", () => {
+    const config = buildDatabaseConfig({
+      databaseUrl: "postgresql://localhost/db",
+    });
+    expect(config.sslMode).toBe("disable");
+  });
 
-    await expect(
-      withTransaction(async () => {
-        throw new CustomError("custom failure");
+  it("rejects invalid sslMode", () => {
+    expect(() =>
+      buildDatabaseConfig({
+        databaseUrl: "postgresql://localhost/db",
+        sslMode: "verify-full" as "disable",
       }),
-    ).rejects.toThrow(CustomError);
+    ).toThrow();
   });
 });

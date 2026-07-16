@@ -9,6 +9,8 @@ export default [
       "**/build/**",
       "**/.next/**",
       "**/coverage/**",
+      "**/drizzle.config.ts",
+      "**/vitest.config*.ts",
     ],
   },
   {
