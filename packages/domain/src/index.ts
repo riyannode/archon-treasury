@@ -75,18 +75,25 @@ export type { Organization } from "./organization.js";
 export {
   OrganizationStatus,
   isValidOrganizationStatus,
+  validateOrganizationStatus,
   createOrganization,
   renameOrganization,
   changeOrganizationSlug,
   suspendOrganization,
   activateOrganization,
+  validateOrganizationName,
+  isValidOrganizationName,
 } from "./organization.js";
 export type {
   CreateOrganizationInput as CreateOrganizationEntityInput,
 } from "./organization.js";
 
-// OrganizationSlug value object (exports both type and value)
-export { OrganizationSlug, normalizeSlug } from "./organization-slug.js";
+// OrganizationSlug value object
+export {
+  OrganizationSlug,
+  normalizeSlug,
+  findInvalidSlugChars,
+} from "./organization-slug.js";
 
 // Domain errors
 export {
@@ -94,11 +101,14 @@ export {
   NotFoundError,
   ConflictError,
   ValidationError,
+  DataIntegrityError,
   organizationNotFoundError,
   organizationSlugConflictError,
   invalidOrganizationNameError,
   invalidOrganizationSlugError,
   invalidOrganizationStatusTransitionError,
+  emptyUpdateError,
+  organizationPersistenceError,
 } from "./errors.js";
 
 // Repository interface

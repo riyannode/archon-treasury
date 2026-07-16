@@ -1,21 +1,35 @@
 // ── Organization Slug Value Object ─────────────────────────────────────────
 // A validated, canonical slug for organizations.
 //
-// Rules:
-//   - Lowercase canonical form (trimmed, normalized)
+// Normalization:
+//   1. Trim whitespace
+//   2. Lowercase
+//   3. Replace spaces and underscores with hyphens
+//   4. Collapse consecutive hyphens
+//   5. Trim leading/trailing hyphens
+//
+// Validation (after normalization):
 //   - Only lowercase letters (a-z), digits (0-9), and hyphens (-)
-//   - Must start and end with a letter or digit (no leading/trailing hyphens)
-//   - No consecutive hyphens
+//   - Must match ^[a-z0-9]+(-[a-z0-9]+)*$
 //   - Minimum 1 character, maximum 63 characters
-//   - Equality is structural (same normalized value)
+//
+// Characters NOT in [a-z0-9_- ] cause validation error — they are NOT stripped.
+// "archon!" → invalid (not "archon")
+// "pay$labs" → invalid (not "paylabs")
+// "archon/labs" → invalid (not "archon-labs")
 
 // ── Validation constants ──────────────────────────────────────────────────
 
 const SLUG_MIN_LENGTH = 1;
 const SLUG_MAX_LENGTH = 63;
 
-// Only lowercase letters, digits, and hyphens — no underscores, no uppercase
+// Allowed characters BEFORE normalization: a-z, A-Z, 0-9, hyphen, underscore, space
+// After normalization: only a-z, 0-9, hyphen
 const SLUG_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/;
+
+// Characters that are invalid in slug input (after trim+lowercase, before normalization)
+// If the raw input (trimmed, lowercased) contains any of these, it's invalid.
+const INVALID_SLUG_CHARS = /[^a-z0-9_\- ]/;
 
 // ── Brand ─────────────────────────────────────────────────────────────────
 
@@ -26,26 +40,44 @@ export type OrganizationSlug = Brand<"OrganizationSlug", string>;
 // ── Normalization ─────────────────────────────────────────────────────────
 
 /**
+ * Detect whether a raw string contains characters that cannot be part of
+ * a valid slug even after normalization. Returns the invalid character
+ * or null if all characters are acceptable.
+ */
+export function findInvalidSlugChars(raw: string): string | null {
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim().toLowerCase();
+  const match = trimmed.match(INVALID_SLUG_CHARS);
+  return match ? match[0]! : null;
+}
+
+/**
  * Normalize a raw string into canonical slug form.
  *
- * Steps:
- *   1. Trim whitespace
- *   2. Lowercase
- *   3. Replace spaces and underscores with hyphens
- *   4. Strip characters that aren't a-z, 0-9, or hyphen
- *   5. Collapse consecutive hyphens into one
- *   6. Strip leading/trailing hyphens
+ * Allowed transformations:
+ *   - Trim whitespace
+ *   - Lowercase
+ *   - Spaces and underscores → hyphens
+ *   - Collapse consecutive hyphens
+ *   - Trim leading/trailing hyphens
  *
- * Returns null if normalization produces an empty string.
+ * Characters outside [a-z0-9_- ] cause null return (not stripped).
+ * Returns null if normalization produces an empty string or if
+ * the input contains invalid characters.
  */
 export function normalizeSlug(raw: string): string | null {
   if (typeof raw !== "string") return null;
 
-  let normalized = raw
-    .trim()
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return null;
+
+  // Check for invalid characters BEFORE normalizing
+  // This prevents "archon!" from becoming "archon"
+  if (findInvalidSlugChars(trimmed) !== null) return null;
+
+  let normalized = trimmed
     .toLowerCase()
     .replace(/[\s_]+/g, "-") // spaces/underscores → hyphens
-    .replace(/[^a-z0-9-]/g, "") // strip invalid chars
     .replace(/-{2,}/g, "-") // collapse consecutive hyphens
     .replace(/^-+|-+$/g, ""); // strip leading/trailing hyphens
 
@@ -67,46 +99,23 @@ function isValidSlugFormat(value: string): boolean {
 // ── Public API ────────────────────────────────────────────────────────────
 
 export interface OrganizationSlugAPI {
-  /**
-   * Parse and validate a raw string into an OrganizationSlug.
-   * Normalizes the input (lowercase, trim, collapse separators).
-   * Throws on invalid input.
-   */
   parse(value: string): OrganizationSlug;
-
-  /**
-   * Create an OrganizationSlug from a raw string.
-   * Alias for parse — semantically signals intent to create a new slug.
-   */
   create(value: string): OrganizationSlug;
-
-  /**
-   * Attempt to parse, returning null on invalid input.
-   */
   safe(value: string): OrganizationSlug | null;
-
-  /**
-   * Extract the string value from a branded slug.
-   */
   value(slug: OrganizationSlug): string;
-
-  /**
-   * Structural equality — same normalized value = equal.
-   */
   equals(a: OrganizationSlug, b: OrganizationSlug): boolean;
-
-  /**
-   * Type guard.
-   */
   is(value: unknown): value is OrganizationSlug;
-
-  /**
-   * Serialize back to string.
-   */
   serialize(slug: OrganizationSlug): string;
 }
 
 function validate(value: string): OrganizationSlug {
+  const invalidChar = findInvalidSlugChars(value);
+  if (invalidChar !== null) {
+    throw new Error(
+      `Invalid OrganizationSlug: "${value}" contains invalid character "${invalidChar}"`,
+    );
+  }
+
   const normalized = normalizeSlug(value);
   if (normalized === null) {
     throw new Error(

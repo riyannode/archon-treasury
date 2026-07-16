@@ -3,7 +3,7 @@
  *
  * Implements OrganizationRepository from the domain package.
  * All queries are parameterized. No SQL string interpolation.
- * Maps database rows to domain entities explicitly.
+ * Maps database rows to domain entities explicitly with validation.
  * Maps domain inputs to persistence format explicitly.
  *
  * Tenant boundary: Organization IS the tenant root.
@@ -28,16 +28,68 @@ import {
   OrganizationStatus,
   organizationNotFoundError,
   organizationSlugConflictError,
+  validateOrganizationName,
+  validateOrganizationStatus,
+  emptyUpdateError,
+  organizationPersistenceError,
 } from "@archon-treasury/domain";
 
-// ── Row → Domain mapping ──────────────────────────────────────────────────
+// ── Row → Domain mapping (with validation) ────────────────────────────────
 
 function rowToOrganization(row: OrganizationRow): Organization {
+  // Validate ID
+  const id = OrganizationId.safe(row.id);
+  if (id === null) {
+    throw organizationPersistenceError(
+      `invalid persisted ID: "${row.id}"`,
+    );
+  }
+
+  // Validate name
+  let name: string;
+  try {
+    name = validateOrganizationName(row.name);
+  } catch {
+    throw organizationPersistenceError(
+      `invalid persisted name: "${row.name}"`,
+    );
+  }
+
+  // Validate slug
+  const slug = OrganizationSlug.safe(row.slug);
+  if (slug === null) {
+    throw organizationPersistenceError(
+      `invalid persisted slug: "${row.slug}"`,
+    );
+  }
+
+  // Validate status
+  let status: OrganizationStatus;
+  try {
+    status = validateOrganizationStatus(row.status);
+  } catch {
+    throw organizationPersistenceError(
+      `invalid persisted status: "${row.status}"`,
+    );
+  }
+
+  // Validate timestamps
+  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
+    throw organizationPersistenceError(
+      `invalid persisted createdAt: ${String(row.createdAt)}`,
+    );
+  }
+  if (!(row.updatedAt instanceof Date) || Number.isNaN(row.updatedAt.getTime())) {
+    throw organizationPersistenceError(
+      `invalid persisted updatedAt: ${String(row.updatedAt)}`,
+    );
+  }
+
   return {
-    id: OrganizationId.parse(row.id),
-    name: row.name,
-    slug: OrganizationSlug.parse(row.slug),
-    status: row.status as import("@archon-treasury/domain").OrganizationStatus,
+    id,
+    name,
+    slug,
+    status,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -53,11 +105,13 @@ export class PgOrganizationRepository implements OrganizationRepository {
   constructor(private readonly db: Database | DatabaseTransaction) {}
 
   async create(input: CreateOrganizationInput): Promise<Organization> {
-    const now = new Date();
+    // Validate before query
+    const trimmedName = validateOrganizationName(input.name);
 
+    const now = new Date();
     const newRow = {
       id: OrganizationId.serialize(input.id),
-      name: input.name.trim(),
+      name: trimmedName,
       slug: OrganizationSlug.serialize(input.slug),
       status: OrganizationStatus.ACTIVE,
       createdAt: now,
@@ -77,8 +131,8 @@ export class PgOrganizationRepository implements OrganizationRepository {
 
       return rowToOrganization(row);
     } catch (error: unknown) {
-      // Map PostgreSQL unique violation (23505) to domain ConflictError
-      if (isUniqueViolation(error)) {
+      // Map PostgreSQL unique violation (23505) ONLY for the slug constraint
+      if (isSlugUniqueViolation(error)) {
         throw organizationSlugConflictError(
           OrganizationSlug.serialize(input.slug),
         );
@@ -112,30 +166,37 @@ export class PgOrganizationRepository implements OrganizationRepository {
   }
 
   async update(input: UpdateOrganizationInput): Promise<Organization> {
-    // First verify the organization exists
-    const existing = await this.findById(input.id);
-    if (!existing) {
-      throw organizationNotFoundError(OrganizationId.serialize(input.id));
-    }
-
     // Build update payload — only defined fields
-    const updates: Record<string, unknown> = {
-      updatedAt: new Date(),
-    };
+    const updates: Record<string, unknown> = {};
+    let hasChanges = false;
 
     if (input.name !== undefined) {
-      updates["name"] = input.name.trim();
+      const trimmedName = validateOrganizationName(input.name);
+      updates["name"] = trimmedName;
+      hasChanges = true;
     }
 
     if (input.slug !== undefined) {
       updates["slug"] = OrganizationSlug.serialize(input.slug);
+      hasChanges = true;
     }
 
     if (input.status !== undefined) {
-      updates["status"] = input.status;
+      const validStatus = validateOrganizationStatus(input.status);
+      updates["status"] = validStatus;
+      hasChanges = true;
     }
 
+    // Reject empty update
+    if (!hasChanges) {
+      throw emptyUpdateError();
+    }
+
+    // Only update updatedAt when there are actual field changes
+    updates["updatedAt"] = new Date();
+
     try {
+      // Single UPDATE ... WHERE id = ... RETURNING
       const result = await this.db
         .update(organizations)
         .set(updates)
@@ -144,14 +205,13 @@ export class PgOrganizationRepository implements OrganizationRepository {
 
       const row = result[0];
       if (!row) {
-        // Should not happen since we checked existence above
         throw organizationNotFoundError(OrganizationId.serialize(input.id));
       }
 
       return rowToOrganization(row);
     } catch (error: unknown) {
-      // Map PostgreSQL unique violation (23505) to domain ConflictError
-      if (isUniqueViolation(error)) {
+      // Map PostgreSQL unique violation (23505) ONLY for the slug constraint
+      if (isSlugUniqueViolation(error)) {
         throw organizationSlugConflictError(
           input.slug
             ? OrganizationSlug.serialize(input.slug)
@@ -165,14 +225,27 @@ export class PgOrganizationRepository implements OrganizationRepository {
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-function isUniqueViolation(error: unknown): boolean {
+/**
+ * Check if a PostgreSQL error is a unique violation on the slug constraint.
+ * Checks the constraint name to avoid mapping unrelated unique violations
+ * (e.g., PK collision) to slug conflict.
+ */
+function isSlugUniqueViolation(error: unknown): boolean {
   if (
     typeof error === "object" &&
     error !== null &&
     "code" in error &&
     (error as { code: string }).code === "23505"
   ) {
-    return true;
+    // Check constraint name if available (pg driver exposes it)
+    const detail = (error as { detail?: string }).detail ?? "";
+    const constraint = (error as { constraint?: string }).constraint ?? "";
+    if (
+      constraint === "organizations_slug_unique" ||
+      detail.includes("organizations_slug_unique")
+    ) {
+      return true;
+    }
   }
   return false;
 }

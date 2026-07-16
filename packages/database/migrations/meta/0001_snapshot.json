@@ -1,5 +1,5 @@
 {
-  "id": "abf4eaa3-299f-4b9f-b5db-a3375ee2435a",
+  "id": "457a1ffa-59b1-4b37-83c9-aa5f0e5d6a20",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -69,7 +69,24 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "organizations_name_length": {
+          "name": "organizations_name_length",
+          "value": "char_length(btrim(\"organizations\".\"name\")) BETWEEN 1 AND 255"
+        },
+        "organizations_slug_length": {
+          "name": "organizations_slug_length",
+          "value": "char_length(\"organizations\".\"slug\") BETWEEN 1 AND 63"
+        },
+        "organizations_slug_format": {
+          "name": "organizations_slug_format",
+          "value": "\"organizations\".\"slug\" ~ '^[a-z0-9]+(-[a-z0-9]+)*$'"
+        },
+        "organizations_status_check": {
+          "name": "organizations_status_check",
+          "value": "\"organizations\".\"status\" IN ('active', 'suspended')"
+        }
+      },
       "isRLSEnabled": false
     }
   },

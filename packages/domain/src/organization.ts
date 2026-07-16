@@ -8,6 +8,10 @@
 
 import type { OrganizationId } from "./identifiers.js";
 import type { OrganizationSlug } from "./organization-slug.js";
+import {
+  invalidOrganizationNameError,
+  ValidationError,
+} from "./errors.js";
 
 // ── Status ────────────────────────────────────────────────────────────────
 
@@ -23,6 +27,15 @@ const VALID_STATUSES = new Set<string>(Object.values(OrganizationStatus));
 
 export function isValidOrganizationStatus(status: string): boolean {
   return VALID_STATUSES.has(status);
+}
+
+export function validateOrganizationStatus(status: string): OrganizationStatus {
+  if (!isValidOrganizationStatus(status)) {
+    throw new ValidationError(
+      `Invalid organization status: "${status}" is not a valid status`,
+    );
+  }
+  return status as OrganizationStatus;
 }
 
 // ── Entity ────────────────────────────────────────────────────────────────
@@ -46,10 +59,20 @@ export function isValidOrganizationName(name: string): boolean {
   return trimmed.length >= NAME_MIN_LENGTH && trimmed.length <= NAME_MAX_LENGTH;
 }
 
+export function validateOrganizationName(name: string): string {
+  const trimmed = name.trim();
+  if (!isValidOrganizationName(trimmed)) {
+    throw invalidOrganizationNameError(
+      `must be non-empty and at most ${NAME_MAX_LENGTH} characters after trim`,
+    );
+  }
+  return trimmed;
+}
+
 // ── Create ────────────────────────────────────────────────────────────────
 
 export interface CreateOrganizationInput {
-  readonly id?: OrganizationId;
+  readonly id: OrganizationId;
   readonly name: string;
   readonly slug: OrganizationSlug;
 }
@@ -58,17 +81,11 @@ export function createOrganization(
   input: CreateOrganizationInput,
   now?: Date,
 ): Organization {
-  const trimmed = input.name.trim();
-  if (!isValidOrganizationName(trimmed)) {
-    throw new Error(
-      `Invalid organization name: must be non-empty and at most ${NAME_MAX_LENGTH} characters after trim`,
-    );
-  }
-
+  const trimmed = validateOrganizationName(input.name);
   const timestamp = now ?? new Date();
 
   return {
-    id: input.id!, // caller is responsible for generating OrganizationId
+    id: input.id,
     name: trimmed,
     slug: input.slug,
     status: OrganizationStatus.ACTIVE,
@@ -85,11 +102,11 @@ export interface RenameOrganizationInput {
 }
 
 export function renameOrganization(input: RenameOrganizationInput): Organization {
-  const trimmed = input.name.trim();
-  if (!isValidOrganizationName(trimmed)) {
-    throw new Error(
-      `Invalid organization name: must be non-empty and at most ${NAME_MAX_LENGTH} characters after trim`,
-    );
+  const trimmed = validateOrganizationName(input.name);
+
+  // Same name → deterministic no-op
+  if (input.organization.name === trimmed) {
+    return input.organization;
   }
 
   return {
@@ -105,6 +122,11 @@ export interface ChangeSlugInput {
 }
 
 export function changeOrganizationSlug(input: ChangeSlugInput): Organization {
+  // Same slug → deterministic no-op
+  if (input.organization.slug === input.slug) {
+    return input.organization;
+  }
+
   return {
     ...input.organization,
     slug: input.slug,
@@ -125,7 +147,7 @@ export function suspendOrganization(organization: Organization): Organization {
 
 export function activateOrganization(organization: Organization): Organization {
   if (organization.status === OrganizationStatus.ACTIVE) {
-    return { ...organization, updatedAt: new Date() }; // already active — still update timestamp
+    return organization; // already active — deterministic no-op
   }
   return {
     ...organization,

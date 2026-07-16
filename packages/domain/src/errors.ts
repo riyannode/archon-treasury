@@ -7,6 +7,7 @@
 //   - NotFoundError: entity not found by identifier
 //   - ConflictError: unique constraint violation (slug conflict, etc.)
 //   - ValidationError: invalid input before persistence
+//   - DataIntegrityError: malformed persisted state
 
 export class DomainError extends Error {
   constructor(
@@ -36,6 +37,13 @@ export class ValidationError extends DomainError {
   constructor(message: string) {
     super(message, "VALIDATION_ERROR");
     this.name = "ValidationError";
+  }
+}
+
+export class DataIntegrityError extends DomainError {
+  constructor(message: string) {
+    super(message, "DATA_INTEGRITY_ERROR");
+    this.name = "DataIntegrityError";
   }
 }
 
@@ -69,5 +77,15 @@ export function invalidOrganizationStatusTransitionError(
 ): ValidationError {
   return new ValidationError(
     `Invalid organization status transition: ${from} → ${to}`,
+  );
+}
+
+export function emptyUpdateError(): ValidationError {
+  return new ValidationError("Empty update: no fields to change");
+}
+
+export function organizationPersistenceError(reason: string): DataIntegrityError {
+  return new DataIntegrityError(
+    `Organization persistence mapping failed: ${reason}`,
   );
 }
