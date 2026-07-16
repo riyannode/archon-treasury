@@ -2,7 +2,7 @@
  * @archon-treasury/database
  *
  * PostgreSQL database client, health checks, transaction helpers,
- * and migration tooling for Archon Treasury.
+ * migration tooling, and repository implementations for Archon Treasury.
  */
 
 // Configuration
@@ -27,3 +27,6 @@ export { withTransaction } from "./transaction.js";
 
 // Schema re-exports
 export * from "./schema/index.js";
+
+// Repository implementations
+export { PgOrganizationRepository } from "./repositories/organization-repository.js";

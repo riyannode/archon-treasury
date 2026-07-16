@@ -1,10 +1,10 @@
 # @archon-treasury/database
 
-> PostgreSQL database client, health checks, transaction helpers, and migration tooling for Archon Treasury.
+> PostgreSQL database client, health checks, transaction helpers, migration tooling, and repository implementations for Archon Treasury.
 
 ## Status
 
-Phase 0 — Foundation. No business tables yet. Baseline migration committed.
+Phase 1 — Organization domain (tenant root). Organizations table and PostgreSQL repository implemented.
 
 ## Architecture
 
@@ -16,18 +16,86 @@ packages/database/
 │   ├── health.ts          # SELECT 1 with SET LOCAL statement_timeout
 │   ├── transaction.ts     # Typed transaction boundaries (commit/rollback)
 │   ├── schema/
-│   │   └── index.ts       # Schema export boundary (empty — no business tables)
+│   │   ├── index.ts       # Schema export boundary
+│   │   └── organizations.ts  # Organizations table schema
+│   ├── repositories/
+│   │   └── organization-repository.ts  # PostgreSQL org repository implementation
 │   ├── index.ts           # Public API barrel
 │   └── *.test.ts          # Unit + integration tests
 ├── migrations/            # Drizzle-generated SQL (committed to Git)
-│   ├── 0000_initial.sql   # Baseline migration (no business tables)
+│   ├── 0000_baseline.sql   # Baseline migration (no business tables)
+│   ├── 0001_organization.sql  # Organization table + slug unique index
 │   └── meta/
-│       ├── _journal.json  # Migration journal
-│       └── 0000_snapshot.json
+│       ├── _journal.json
+│       ├── 0000_snapshot.json
+│       └── 0001_snapshot.json
 ├── drizzle.config.ts      # Drizzle Kit CLI config
 ├── package.json
 └── tsconfig.json
 ```
+
+## Organization Domain
+
+Organization is the **tenant root** for Archon Treasury. All future records (treasury, wallet, membership, policy, proposals, executions, audit events) will reference `organization_id`.
+
+### Schema
+
+| Column | Type | Constraints |
+|--------|------|-------------|
+| `id` | uuid | PRIMARY KEY, application-generated |
+| `name` | text | NOT NULL, 1–255 chars after trim |
+| `slug` | text | NOT NULL, UNIQUE INDEX, lowercase canonical |
+| `status` | text | NOT NULL, DEFAULT 'active', enum: active, suspended |
+| `created_at` | timestamptz | NOT NULL, DEFAULT now() |
+| `updated_at` | timestamptz | NOT NULL, DEFAULT now() |
+
+### Slug Rules
+
+- Lowercase canonical (trimmed, normalized)
+- Only lowercase letters (a-z), digits (0-9), and hyphens (-)
+- No leading/trailing hyphens
+- No consecutive hyphens (collapsed during normalization)
+- Unique globally
+- Max 63 characters
+
+### Status Rules
+
+- `active` — default, normal operation
+- `suspended` — read-only (future: treasury mutations blocked)
+- Both statuses are valid; no other statuses defined
+
+### Tenant Boundary
+
+- Organization IS the tenant root
+- Future treasury, wallet, membership, policy, proposal, execution, and audit records will reference `organization_id`
+- PR does NOT implement membership/RBAC, treasury, wallet, or authorization
+
+## Repository Interface
+
+```typescript
+// From @archon-treasury/domain
+interface OrganizationRepository {
+  create(input: CreateOrganizationInput): Promise<Organization>;
+  findById(id: OrganizationId): Promise<Organization | null>;
+  findBySlug(slug: OrganizationSlug): Promise<Organization | null>;
+  update(input: UpdateOrganizationInput): Promise<Organization>;
+}
+```
+
+## PostgreSQL Repository
+
+```typescript
+import { PgOrganizationRepository } from "@archon-treasury/database";
+
+const repo = new PgOrganizationRepository(db);
+// or within a transaction:
+const repo = new PgOrganizationRepository(tx);
+```
+
+- All queries parameterized (no SQL interpolation)
+- Unique slug violations mapped to `ConflictError`
+- Unknown IDs mapped to `NotFoundError`
+- Accepts `Database | DatabaseTransaction` for transaction support
 
 ## Decisions
 
@@ -48,20 +116,10 @@ cd infra/compose
 docker compose up -d postgres
 ```
 
-PostgreSQL is available at `postgresql://postgres:postgres@localhost:5432/archon_treasury`.
-
 ### Required Environment Variables
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/archon_treasury"
-# Optional pool overrides:
-# DATABASE_POOL_MIN=0
-# DATABASE_POOL_MAX=10
-# DATABASE_IDLE_TIMEOUT_MS=10000
-# DATABASE_CONNECTION_TIMEOUT_MS=5000
-
-# TLS (default: disable for local)
-# DATABASE_SSL_MODE="disable"
+DATABASE_URL="postgresql://postgres:***@localhost:5432/archon_treasury"
 ```
 
 ### Generate Migration
@@ -76,18 +134,6 @@ pnpm --filter @archon-treasury/database db:generate
 pnpm --filter @archon-treasury/database db:migrate
 ```
 
-### Check Migration Status
-
-```bash
-pnpm --filter @archon-treasury/database db:check
-```
-
-### Run Database Studio (local only)
-
-```bash
-pnpm --filter @archon-treasury/database db:studio
-```
-
 ## Testing
 
 ### Unit Tests (no database required)
@@ -99,42 +145,16 @@ pnpm --filter @archon-treasury/database test:unit
 ### Integration Tests (requires PostgreSQL)
 
 ```bash
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/archon_treasury_test" \
+DATABASE_URL="postgresql://postgres:***@localhost:5432/archon_treasury_test" \
   pnpm --filter @archon-treasury/database test:integration
-```
-
-## TLS Configuration
-
-| `DATABASE_SSL_MODE` | Behavior | Use case |
-|---|---|---|
-| `disable` (default) | No TLS | Local development, CI |
-| `require` | Encrypted connection | Production managed PostgreSQL |
-
-**Limitation:** `sslMode: "require"` uses `rejectUnauthorized: false` — the connection is encrypted but the server certificate is **not** verified. This is a known limitation of this foundation PR. Production-grade verified TLS (with CA certificate pinning) requires additional configuration that is out of scope for Phase 0. Do NOT claim production-grade TLS verification until that configuration is implemented.
-
-## Stop and Clean Up
-
-```bash
-cd infra/compose
-docker compose down -v
-```
-
-⚠️ `-v` removes the named volume `pgdata`. Data is lost.
-
-## Production Migration
-
-Production migrations are **explicit commands only** — never auto-run on server import.
-
-```bash
-DATABASE_URL="postgresql://..." pnpm --filter @archon-treasury/database db:migrate
 ```
 
 ## Security
 
 - Credentials never logged or exported in plaintext
-- `DATABASE_URL` password is redacted in all structured output
 - No automatic destructive reset
 - No migration auto-run at server startup
-- TLS configurable for production via `DATABASE_SSL_MODE`
-- No production secrets in Docker Compose or CI logs
 - Database config accepts only explicit input — no ambient `process.env` reads
+- No arbitrary SQL, no string interpolation in queries
+- Unique slug conflicts mapped to stable domain errors
+- No raw PostgreSQL error leakage to callers

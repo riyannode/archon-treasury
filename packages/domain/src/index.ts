@@ -1,5 +1,6 @@
 // ── Domain Package ───────────────────────────────────────────────────────────
-// Core domain primitives: value objects, typed identifiers, chain/asset keys.
+// Core domain primitives: value objects, typed identifiers, chain/asset keys,
+// organization entity, repository contracts, and domain errors.
 
 // Money value object (USDC atomic representation)
 export type AtomicAmount = string;
@@ -26,8 +27,6 @@ export function formatUsdc(money: Money): string {
 }
 
 // ── Typed Identifiers ──────────────────────────────────────────────────────
-// UserId, OrganizationId, etc. are exported as both types and values.
-// The value exports (const) also expose the branded types.
 
 export type { Brand } from "./identifiers.js";
 export {
@@ -68,3 +67,43 @@ export {
   addressesEqual,
   serializeAddress,
 } from "./address.js";
+
+// ── Organization Domain ───────────────────────────────────────────────────
+
+// Organization entity, status, and mutation helpers
+export type { Organization } from "./organization.js";
+export {
+  OrganizationStatus,
+  isValidOrganizationStatus,
+  createOrganization,
+  renameOrganization,
+  changeOrganizationSlug,
+  suspendOrganization,
+  activateOrganization,
+} from "./organization.js";
+export type {
+  CreateOrganizationInput as CreateOrganizationEntityInput,
+} from "./organization.js";
+
+// OrganizationSlug value object (exports both type and value)
+export { OrganizationSlug, normalizeSlug } from "./organization-slug.js";
+
+// Domain errors
+export {
+  DomainError,
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+  organizationNotFoundError,
+  organizationSlugConflictError,
+  invalidOrganizationNameError,
+  invalidOrganizationSlugError,
+  invalidOrganizationStatusTransitionError,
+} from "./errors.js";
+
+// Repository interface
+export type {
+  OrganizationRepository,
+  CreateOrganizationInput,
+  UpdateOrganizationInput,
+} from "./organization-repository.js";
