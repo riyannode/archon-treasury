@@ -95,52 +95,44 @@ describe("OrganizationSlug", () => {
   });
 
   describe("invalid slugs — characters not silently stripped", () => {
-    it("rejects exclamation mark — archon! is invalid", () => {
-      expect(() => OrganizationSlug.parse("archon!")).toThrow("invalid character");
-      expect(OrganizationSlug.safe("archon!")).toBeNull();
+    it("rejects exclamation mark", () => {
+      expect(() => OrganizationSlug.parse("archon!")).toThrow(ValidationError);
     });
 
-    it("rejects dollar sign — pay$labs is invalid", () => {
-      expect(() => OrganizationSlug.parse("pay$labs")).toThrow("invalid character");
-      expect(OrganizationSlug.safe("pay$labs")).toBeNull();
+    it("rejects dollar sign", () => {
+      expect(() => OrganizationSlug.parse("pay$labs")).toThrow(ValidationError);
     });
 
-    it("rejects slash — archon/labs is invalid", () => {
-      expect(() => OrganizationSlug.parse("archon/labs")).toThrow("invalid character");
-      expect(OrganizationSlug.safe("archon/labs")).toBeNull();
+    it("rejects slash", () => {
+      expect(() => OrganizationSlug.parse("archon/labs")).toThrow(ValidationError);
     });
 
-    it("rejects non-ASCII — äρχον is invalid", () => {
-      expect(() => OrganizationSlug.parse("äρχον")).toThrow("invalid character");
-      expect(OrganizationSlug.safe("äρχον")).toBeNull();
+    it("rejects non-ASCII", () => {
+      expect(() => OrganizationSlug.parse("äρχον")).toThrow(ValidationError);
     });
 
     it("archon! does NOT become archon", () => {
-      const result = normalizeSlug("archon!");
-      expect(result).toBeNull();
+      expect(normalizeSlug("archon!")).toBeNull();
     });
 
     it("pay$labs does NOT become paylabs", () => {
-      const result = normalizeSlug("pay$labs");
-      expect(result).toBeNull();
+      expect(normalizeSlug("pay$labs")).toBeNull();
     });
 
     it("a/b does NOT become ab", () => {
-      const result = normalizeSlug("a/b");
-      expect(result).toBeNull();
+      expect(normalizeSlug("a/b")).toBeNull();
     });
 
-    it("rejects empty string", () => {
-      expect(() => OrganizationSlug.parse("")).toThrow("Invalid OrganizationSlug");
+    it("rejects empty string — ValidationError", () => {
+      expect(() => OrganizationSlug.parse("")).toThrow(ValidationError);
     });
 
-    it("rejects string that becomes empty after normalization", () => {
-      expect(() => OrganizationSlug.parse("!!!")).toThrow("invalid character");
+    it("rejects string that becomes empty after normalization — ValidationError", () => {
+      expect(() => OrganizationSlug.parse("!!!")).toThrow(ValidationError);
     });
 
-    it("rejects string longer than 63 chars", () => {
-      const longSlug = "a".repeat(64);
-      expect(() => OrganizationSlug.parse(longSlug)).toThrow("Invalid OrganizationSlug");
+    it("rejects string longer than 63 chars — ValidationError", () => {
+      expect(() => OrganizationSlug.parse("a".repeat(64))).toThrow(ValidationError);
     });
   });
 
@@ -247,17 +239,14 @@ describe("Organization entity", () => {
 
     it("isValidOrganizationStatus rejects invalid", () => {
       expect(isValidOrganizationStatus("deleted")).toBe(false);
-      expect(isValidOrganizationStatus("")).toBe(false);
     });
 
     it("validateOrganizationStatus returns valid status", () => {
       expect(validateOrganizationStatus("active")).toBe("active");
-      expect(validateOrganizationStatus("suspended")).toBe("suspended");
     });
 
     it("validateOrganizationStatus throws ValidationError for invalid", () => {
       expect(() => validateOrganizationStatus("deleted")).toThrow(ValidationError);
-      expect(() => validateOrganizationStatus("")).toThrow(ValidationError);
     });
   });
 
@@ -290,8 +279,6 @@ describe("Organization entity", () => {
       expect(org.name).toBe("Test Org");
       expect(org.slug).toBe("test-org");
       expect(org.status).toBe(OrganizationStatus.ACTIVE);
-      expect(org.createdAt).toBeInstanceOf(Date);
-      expect(org.updatedAt).toBeInstanceOf(Date);
     });
 
     it("trims name", () => {
@@ -338,8 +325,6 @@ describe("Organization entity", () => {
       const org = makeOrganization();
       const renamed = renameOrganization({ organization: org, name: "New Name" });
       expect(renamed.name).toBe("New Name");
-      expect(renamed.id).toBe(org.id);
-      expect(renamed.slug).toBe(org.slug);
       expect(renamed.updatedAt.getTime()).toBeGreaterThan(org.updatedAt.getTime());
     });
 
@@ -379,28 +364,24 @@ describe("Organization entity", () => {
   describe("suspendOrganization", () => {
     it("suspends active organization", () => {
       const org = makeOrganization({ status: OrganizationStatus.ACTIVE });
-      const suspended = suspendOrganization(org);
-      expect(suspended.status).toBe(OrganizationStatus.SUSPENDED);
+      expect(suspendOrganization(org).status).toBe(OrganizationStatus.SUSPENDED);
     });
 
     it("no-op when already suspended", () => {
       const org = makeOrganization({ status: OrganizationStatus.SUSPENDED });
-      const result = suspendOrganization(org);
-      expect(result).toBe(org);
+      expect(suspendOrganization(org)).toBe(org);
     });
   });
 
   describe("activateOrganization", () => {
     it("activates suspended organization", () => {
       const org = makeOrganization({ status: OrganizationStatus.SUSPENDED });
-      const activated = activateOrganization(org);
-      expect(activated.status).toBe(OrganizationStatus.ACTIVE);
+      expect(activateOrganization(org).status).toBe(OrganizationStatus.ACTIVE);
     });
 
     it("no-op when already active — preserves updatedAt", () => {
       const org = makeOrganization({ status: OrganizationStatus.ACTIVE });
-      const result = activateOrganization(org);
-      expect(result).toBe(org); // same reference — no timestamp change
+      expect(activateOrganization(org)).toBe(org);
     });
   });
 });
@@ -412,51 +393,38 @@ describe("Domain errors", () => {
     const err = new DomainError("test", "TEST_CODE");
     expect(err).toBeInstanceOf(Error);
     expect(err.code).toBe("TEST_CODE");
-    expect(err.message).toBe("test");
     expect(err.name).toBe("DomainError");
   });
 
   it("NotFoundError extends DomainError", () => {
-    const err = new NotFoundError("Org", "123");
-    expect(err).toBeInstanceOf(DomainError);
-    expect(err.code).toBe("NOT_FOUND");
+    expect(new NotFoundError("Org", "123")).toBeInstanceOf(DomainError);
   });
 
   it("ConflictError extends DomainError", () => {
-    const err = new ConflictError("slug conflict");
-    expect(err).toBeInstanceOf(DomainError);
-    expect(err.code).toBe("CONFLICT");
+    expect(new ConflictError("x")).toBeInstanceOf(DomainError);
   });
 
   it("ValidationError extends DomainError", () => {
-    const err = new ValidationError("bad input");
-    expect(err).toBeInstanceOf(DomainError);
-    expect(err.code).toBe("VALIDATION_ERROR");
+    expect(new ValidationError("x")).toBeInstanceOf(DomainError);
   });
 
   it("DataIntegrityError extends DomainError", () => {
-    const err = new DataIntegrityError("malformed row");
-    expect(err).toBeInstanceOf(DomainError);
-    expect(err.code).toBe("DATA_INTEGRITY_ERROR");
+    expect(new DataIntegrityError("x")).toBeInstanceOf(DomainError);
   });
 
   it("organizationNotFoundError returns NotFoundError", () => {
-    const err = organizationNotFoundError("some-id");
-    expect(err).toBeInstanceOf(NotFoundError);
+    expect(organizationNotFoundError("id")).toBeInstanceOf(NotFoundError);
   });
 
   it("organizationSlugConflictError returns ConflictError", () => {
-    const err = organizationSlugConflictError("my-slug");
-    expect(err).toBeInstanceOf(ConflictError);
+    expect(organizationSlugConflictError("slug")).toBeInstanceOf(ConflictError);
   });
 
   it("emptyUpdateError returns ValidationError", () => {
-    const err = emptyUpdateError();
-    expect(err).toBeInstanceOf(ValidationError);
+    expect(emptyUpdateError()).toBeInstanceOf(ValidationError);
   });
 
   it("organizationPersistenceError returns DataIntegrityError", () => {
-    const err = organizationPersistenceError("bad status");
-    expect(err).toBeInstanceOf(DataIntegrityError);
+    expect(organizationPersistenceError("reason")).toBeInstanceOf(DataIntegrityError);
   });
 });

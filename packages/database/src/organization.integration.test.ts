@@ -332,6 +332,64 @@ describe("integration: update organization", () => {
       created.updatedAt.getTime(),
     );
   });
+
+  it("same name preserves updatedAt", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("same-name");
+    const created = await repo.create({ id, name: "Same Name", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updated = await repo.update({ id, name: "Same Name" });
+    expect(updated.name).toBe("Same Name");
+    expect(updated.updatedAt.getTime()).toBe(created.updatedAt.getTime());
+  });
+
+  it("same slug preserves updatedAt", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("same-slug");
+    const created = await repo.create({ id, name: "Same Slug", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updated = await repo.update({ id, slug: OrganizationSlug.parse("same-slug") });
+    expect(updated.slug).toBe("same-slug");
+    expect(updated.updatedAt.getTime()).toBe(created.updatedAt.getTime());
+  });
+
+  it("same status preserves updatedAt", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("same-status");
+    const created = await repo.create({ id, name: "Same Status", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    const updated = await repo.update({ id, status: OrganizationStatus.ACTIVE });
+    expect(updated.status).toBe(OrganizationStatus.ACTIVE);
+    expect(updated.updatedAt.getTime()).toBe(created.updatedAt.getTime());
+  });
+
+  it("mixed patch: one same + one different changes updatedAt", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("mixed-patch");
+    const created = await repo.create({ id, name: "Mixed", slug });
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    // Same name, different slug → should update
+    const updated = await repo.update({ id, name: "Mixed", slug: OrganizationSlug.parse("mixed-new") });
+    expect(updated.name).toBe("Mixed");
+    expect(updated.slug).toBe("mixed-new");
+    expect(updated.updatedAt.getTime()).toBeGreaterThan(created.updatedAt.getTime());
+  });
+
+  it("empty update is rejected as ValidationError", async () => {
+    const id = makeId();
+    const slug = OrganizationSlug.parse("empty-update");
+    await repo.create({ id, name: "Empty", slug });
+
+    await expect(repo.update({ id })).rejects.toThrow(/empty/i);
+  });
 });
 
 // ── Transaction ───────────────────────────────────────────────────────────

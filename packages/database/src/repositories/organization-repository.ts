@@ -10,7 +10,7 @@
  * This repository operates on the organizations table only.
  */
 
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import type { Database, DatabaseTransaction } from "../client.js";
 import { organizations } from "../schema/organizations.js";
 import type { OrganizationRow } from "../schema/organizations.js";
@@ -41,7 +41,7 @@ function rowToOrganization(row: OrganizationRow): Organization {
   const id = OrganizationId.safe(row.id);
   if (id === null) {
     throw organizationPersistenceError(
-      `invalid persisted ID: "${row.id}"`,
+      `invalid persisted ID`,
     );
   }
 
@@ -51,7 +51,7 @@ function rowToOrganization(row: OrganizationRow): Organization {
     name = validateOrganizationName(row.name);
   } catch {
     throw organizationPersistenceError(
-      `invalid persisted name: "${row.name}"`,
+      `invalid persisted name`,
     );
   }
 
@@ -59,7 +59,7 @@ function rowToOrganization(row: OrganizationRow): Organization {
   const slug = OrganizationSlug.safe(row.slug);
   if (slug === null) {
     throw organizationPersistenceError(
-      `invalid persisted slug: "${row.slug}"`,
+      `invalid persisted slug`,
     );
   }
 
@@ -69,19 +69,19 @@ function rowToOrganization(row: OrganizationRow): Organization {
     status = validateOrganizationStatus(row.status);
   } catch {
     throw organizationPersistenceError(
-      `invalid persisted status: "${row.status}"`,
+      `invalid persisted status`,
     );
   }
 
   // Validate timestamps
   if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
     throw organizationPersistenceError(
-      `invalid persisted createdAt: ${String(row.createdAt)}`,
+      `invalid persisted createdAt`,
     );
   }
   if (!(row.updatedAt instanceof Date) || Number.isNaN(row.updatedAt.getTime())) {
     throw organizationPersistenceError(
-      `invalid persisted updatedAt: ${String(row.updatedAt)}`,
+      `invalid persisted updatedAt`,
     );
   }
 
@@ -126,7 +126,7 @@ export class PgOrganizationRepository implements OrganizationRepository {
 
       const row = result[0];
       if (!row) {
-        throw new Error("Organization create returned no rows");
+        throw organizationPersistenceError("create returned no rows");
       }
 
       return rowToOrganization(row);
@@ -168,58 +168,80 @@ export class PgOrganizationRepository implements OrganizationRepository {
   async update(input: UpdateOrganizationInput): Promise<Organization> {
     // Build update payload — only defined fields
     const updates: Record<string, unknown> = {};
-    let hasChanges = false;
 
     if (input.name !== undefined) {
-      const trimmedName = validateOrganizationName(input.name);
-      updates["name"] = trimmedName;
-      hasChanges = true;
+      updates["name"] = validateOrganizationName(input.name);
     }
 
     if (input.slug !== undefined) {
       updates["slug"] = OrganizationSlug.serialize(input.slug);
-      hasChanges = true;
     }
 
     if (input.status !== undefined) {
-      const validStatus = validateOrganizationStatus(input.status);
-      updates["status"] = validStatus;
-      hasChanges = true;
+      updates["status"] = validateOrganizationStatus(input.status);
     }
 
     // Reject empty update
-    if (!hasChanges) {
+    if (Object.keys(updates).length === 0) {
       throw emptyUpdateError();
     }
 
-    // Only update updatedAt when there are actual field changes
-    updates["updatedAt"] = new Date();
+    // CTE: fetch current row, compare values, only update if something changed.
+    // This is atomic — no check-then-update race.
+    const idStr = OrganizationId.serialize(input.id);
+    const now = new Date();
 
-    try {
-      // Single UPDATE ... WHERE id = ... RETURNING
-      const result = await this.db
-        .update(organizations)
-        .set(updates)
-        .where(eq(organizations.id, OrganizationId.serialize(input.id)))
-        .returning();
+    // Build the SET clause dynamically using Drizzle's SQL template
+    const setClauses: ReturnType<typeof sql>[] = [];
+    const whereConditions: ReturnType<typeof sql>[] = [];
 
-      const row = result[0];
-      if (!row) {
-        throw organizationNotFoundError(OrganizationId.serialize(input.id));
-      }
-
-      return rowToOrganization(row);
-    } catch (error: unknown) {
-      // Map PostgreSQL unique violation (23505) ONLY for the slug constraint
-      if (isSlugUniqueViolation(error)) {
-        throw organizationSlugConflictError(
-          input.slug
-            ? OrganizationSlug.serialize(input.slug)
-            : "unknown slug",
-        );
-      }
-      throw error;
+    for (const [col, val] of Object.entries(updates)) {
+      const colRef = sql.identifier(col);
+      setClauses.push(sql`${colRef} = ${val}`);
+      // WHERE: current value differs from new value
+      whereConditions.push(sql`${colRef} IS DISTINCT FROM ${val}`);
     }
+
+    if (setClauses.length === 0) {
+      throw emptyUpdateError();
+    }
+
+    // Single atomic query: UPDATE with conditional WHERE
+    // If no row has changed values, RETURNING is empty → not found or no-op
+    const result = await this.db.execute(sql`
+      WITH current_row AS (
+        SELECT id, ${sql.join(
+          Object.keys(updates).map((col) => sql`${sql.identifier(col)} AS ${sql.identifier(`cur_${col}`)}`),
+          sql`, `,
+        )}
+        FROM ${organizations}
+        WHERE id = ${idStr}
+      ),
+      do_update AS (
+        UPDATE organizations
+        SET ${sql.join(setClauses, sql`, `)}, updated_at = ${now}
+        WHERE id = ${idStr}
+          AND (${sql.join(whereConditions, sql` OR `)})
+        RETURNING *
+      )
+      SELECT * FROM do_update
+    `);
+
+    const rows = result.rows as OrganizationRow[];
+    const row = rows[0];
+
+    if (!row) {
+      // Either the row doesn't exist, or all values are the same.
+      // Check if the row exists at all.
+      const existing = await this.findById(input.id);
+      if (!existing) {
+        throw organizationNotFoundError(idStr);
+      }
+      // All values same → deterministic no-op, return existing
+      return existing;
+    }
+
+    return rowToOrganization(row);
   }
 }
 
@@ -237,7 +259,6 @@ function isSlugUniqueViolation(error: unknown): boolean {
     "code" in error &&
     (error as { code: string }).code === "23505"
   ) {
-    // Check constraint name if available (pg driver exposes it)
     const detail = (error as { detail?: string }).detail ?? "";
     const constraint = (error as { constraint?: string }).constraint ?? "";
     if (

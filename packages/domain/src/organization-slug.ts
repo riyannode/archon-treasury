@@ -18,6 +18,8 @@
 // "pay$labs" → invalid (not "paylabs")
 // "archon/labs" → invalid (not "archon-labs")
 
+import { invalidOrganizationSlugError } from "./errors.js";
+
 // ── Validation constants ──────────────────────────────────────────────────
 
 const SLUG_MIN_LENGTH = 1;
@@ -111,20 +113,20 @@ export interface OrganizationSlugAPI {
 function validate(value: string): OrganizationSlug {
   const invalidChar = findInvalidSlugChars(value);
   if (invalidChar !== null) {
-    throw new Error(
-      `Invalid OrganizationSlug: "${value}" contains invalid character "${invalidChar}"`,
+    throw invalidOrganizationSlugError(
+      `contains invalid character "${invalidChar}"`,
     );
   }
 
   const normalized = normalizeSlug(value);
   if (normalized === null) {
-    throw new Error(
-      `Invalid OrganizationSlug: "${value}" cannot be normalized to a valid slug`,
+    throw invalidOrganizationSlugError(
+      `cannot be normalized to a valid slug`,
     );
   }
   if (!isValidSlugFormat(normalized)) {
-    throw new Error(
-      `Invalid OrganizationSlug: "${normalized}" does not match required format`,
+    throw invalidOrganizationSlugError(
+      `does not match required format`,
     );
   }
   return normalized as OrganizationSlug;
