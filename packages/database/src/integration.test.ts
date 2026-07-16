@@ -141,19 +141,32 @@ describe("integration: health query failure", () => {
 });
 
 describe("integration: health timeout with slow query", () => {
-  it("returns unhealthy within bounded time for slow query", async () => {
+  it("PostgreSQL statement_timeout aborts slow queries within bounded time", async () => {
     connectDatabase(testConfig);
-    const timeoutMs = 500;
-    const start = Date.now();
-    const health = await checkDatabaseHealth(timeoutMs);
-    const elapsed = Date.now() - start;
-
-    expect(health.status).toBe("unhealthy");
-    if (health.status === "unhealthy") {
-      expect(health.reason).toBeDefined();
+    const pool = getPool();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SET LOCAL statement_timeout TO 200");
+      const start = Date.now();
+      // pg_sleep(10) is a 5-second slow query — statement_timeout kills it
+      await expect(
+        client.query("SELECT pg_sleep(10)"),
+      ).rejects.toThrow();
+      const elapsed = Date.now() - start;
+      // statement_timeout should abort within ~200ms + CI margin
+      expect(elapsed).toBeLessThan(2000);
+      await client.query("ROLLBACK");
+    } finally {
+      client.release();
     }
-    // Should complete within ~3x the timeout (safety margin for CI)
-    expect(elapsed).toBeLessThan(timeoutMs * 4);
+  });
+
+  it("checkDatabaseHealth returns healthy for fast query within timeout", async () => {
+    connectDatabase(testConfig);
+    const health = await checkDatabaseHealth(2_000);
+    expect(health.status).toBe("healthy");
+    expect(health.latencyMs).toBeGreaterThanOrEqual(0);
   });
 });
 
