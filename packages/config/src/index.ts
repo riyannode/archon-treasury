@@ -13,6 +13,7 @@ export type AppConfig = {
   databasePoolMax?: number;
   databaseIdleTimeoutMs?: number;
   databaseConnectionTimeoutMs?: number;
+  databaseSslMode?: "disable" | "require";
   circleApiKey?: string;
 };
 
@@ -36,6 +37,7 @@ export function loadConfig(
     ...(env.DATABASE_POOL_MAX !== undefined && { databasePoolMax: env.DATABASE_POOL_MAX }),
     ...(env.DATABASE_IDLE_TIMEOUT_MS !== undefined && { databaseIdleTimeoutMs: env.DATABASE_IDLE_TIMEOUT_MS }),
     ...(env.DATABASE_CONNECTION_TIMEOUT_MS !== undefined && { databaseConnectionTimeoutMs: env.DATABASE_CONNECTION_TIMEOUT_MS }),
+    ...(env.DATABASE_SSL_MODE !== undefined && { databaseSslMode: env.DATABASE_SSL_MODE }),
     ...(env.CIRCLE_API_KEY !== undefined && { circleApiKey: env.CIRCLE_API_KEY }),
   };
 }

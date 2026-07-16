@@ -4,22 +4,26 @@
 
 ## Status
 
-Phase 0 — Foundation. No business tables yet.
+Phase 0 — Foundation. No business tables yet. Baseline migration committed.
 
 ## Architecture
 
 ```
 packages/database/
 ├── src/
-│   ├── config.ts          # Database config validation (Zod)
-│   ├── client.ts          # Connection pool singleton (Drizzle + pg)
-│   ├── health.ts          # SELECT 1 health check
+│   ├── config.ts          # Database config validation (Zod) — explicit input only
+│   ├── client.ts          # Connection pool singleton (Drizzle + pg) + SSL config
+│   ├── health.ts          # SELECT 1 with SET LOCAL statement_timeout
 │   ├── transaction.ts     # Typed transaction boundaries (commit/rollback)
 │   ├── schema/
 │   │   └── index.ts       # Schema export boundary (empty — no business tables)
 │   ├── index.ts           # Public API barrel
 │   └── *.test.ts          # Unit + integration tests
 ├── migrations/            # Drizzle-generated SQL (committed to Git)
+│   ├── 0000_initial.sql   # Baseline migration (no business tables)
+│   └── meta/
+│       ├── _journal.json  # Migration journal
+│       └── 0000_snapshot.json
 ├── drizzle.config.ts      # Drizzle Kit CLI config
 ├── package.json
 └── tsconfig.json
@@ -33,6 +37,7 @@ packages/database/
 - **PostgreSQL version:** 16 (pinned)
 - **Connection:** Lazy pool creation, singleton per process
 - **Config:** Validated via `@archon-treasury/config` (single env source)
+- **TLS:** `DATABASE_SSL_MODE` — `"disable"` (default) or `"require"`
 
 ## Local Development
 
@@ -54,6 +59,9 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/archon_treasury"
 # DATABASE_POOL_MAX=10
 # DATABASE_IDLE_TIMEOUT_MS=10000
 # DATABASE_CONNECTION_TIMEOUT_MS=5000
+
+# TLS (default: disable for local)
+# DATABASE_SSL_MODE="disable"
 ```
 
 ### Generate Migration
@@ -95,6 +103,15 @@ DATABASE_URL="postgresql://postgres:postgres@localhost:5432/archon_treasury_test
   pnpm --filter @archon-treasury/database test:integration
 ```
 
+## TLS Configuration
+
+| `DATABASE_SSL_MODE` | Behavior | Use case |
+|---|---|---|
+| `disable` (default) | No TLS | Local development, CI |
+| `require` | Encrypted connection | Production managed PostgreSQL |
+
+**Limitation:** `sslMode: "require"` uses `rejectUnauthorized: false` — the connection is encrypted but the server certificate is **not** verified. This is a known limitation of this foundation PR. Production-grade verified TLS (with CA certificate pinning) requires additional configuration that is out of scope for Phase 0. Do NOT claim production-grade TLS verification until that configuration is implemented.
+
 ## Stop and Clean Up
 
 ```bash
@@ -118,5 +135,6 @@ DATABASE_URL="postgresql://..." pnpm --filter @archon-treasury/database db:migra
 - `DATABASE_URL` password is redacted in all structured output
 - No automatic destructive reset
 - No migration auto-run at server startup
-- TLS required for production managed PostgreSQL
+- TLS configurable for production via `DATABASE_SSL_MODE`
 - No production secrets in Docker Compose or CI logs
+- Database config accepts only explicit input — no ambient `process.env` reads

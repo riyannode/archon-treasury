@@ -113,21 +113,24 @@ jobs:
           for i in $(seq 1 10); do
             pg_isready -h localhost -p 5432 -U postgres && break || sleep 2
           done
+      - name: Run baseline migration on empty database
+        run: |
+          # Service container starts with archon_treasury_test DB (empty)
+          # Run committed baseline migration
+          pnpm --filter @archon-treasury/database db:migrate
       - name: Run database integration tests
         run: pnpm --filter @archon-treasury/database test:integration
-      - name: Verify migration from empty database
+      - name: Verify migration metadata recorded
         run: |
-          # Create a fresh database for migration testing
-          PGPASSWORD=testpassword psql -h localhost -U postgres -d postgres -c \
-            "DROP DATABASE IF EXISTS archon_treasury_migration_test;"
-          PGPASSWORD=testpassword psql -h localhost -U postgres -d postgres -c \
-            "CREATE DATABASE archon_treasury_migration_test;"
-          # Run migration against empty database
-          DATABASE_URL="postgresql://postgres:testpassword@localhost:5432/archon_treasury_migration_test" \
-            pnpm --filter @archon-treasury/database db:migrate
-          # Run migration again — should be idempotent/no-op
-          DATABASE_URL="postgresql://postgres:testpassword@localhost:5432/archon_treasury_migration_test" \
-            pnpm --filter @archon-treasury/database db:migrate
+          # Verify drizzle migration metadata table exists with our baseline
+          PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -c \
+            "SELECT tag FROM __drizzle_migrations ORDER BY idx LIMIT 1;" | grep -q "0000_baseline"
+          echo "✓ Migration metadata recorded"
+      - name: Verify migration rerun is idempotent
+        run: |
+          # Running migration again should be a no-op
+          pnpm --filter @archon-treasury/database db:migrate
+          echo "✓ Migration rerun is no-op"
 
   build:
     name: Build

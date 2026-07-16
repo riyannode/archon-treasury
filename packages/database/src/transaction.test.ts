@@ -6,11 +6,12 @@ import type { DatabaseConfig } from "./config.js";
 const testConfig: DatabaseConfig = {
   databaseUrl:
     process.env["DATABASE_URL"] ??
-    "postgresql://postgres:postgres@localhost:5432/archon_treasury_test",
+    "postgresql://postgres:***@localhost:5432/archon_treasury_test",
   poolMin: 0,
   poolMax: 5,
   idleTimeoutMs: 10_000,
   connectionTimeoutMs: 5_000,
+  sslMode: "disable",
 };
 
 describe("withTransaction", () => {

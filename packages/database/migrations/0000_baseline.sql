@@ -1,0 +1,4 @@
+-- Baseline migration: no business tables
+-- This file establishes the Drizzle migration pipeline.
+-- Future PRs will add organization, membership, treasury, wallet,
+-- policy, proposal, execution, and audit tables here.

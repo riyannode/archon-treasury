@@ -6,11 +6,39 @@ import * as schema from "./schema/index.js";
 const { Pool } = pg;
 
 /**
+ * Typed database instance.
+ * Uses actual schema type so future business tables are available in queries.
+ */
+export type Database = NodePgDatabase<typeof schema>;
+
+/**
+ * Typed transaction instance.
+ * Same schema type as Database — transaction callbacks get full schema access.
+ */
+export type DatabaseTransaction = Parameters<Parameters<Database["transaction"]>[0]>[0];
+
+/**
  * The active database pool and Drizzle instance.
  * Singleton per process — created lazily via connectDatabase().
  */
 let pool: pg.Pool | null = null;
-let db: NodePgDatabase<typeof schema> | null = null;
+let db: Database | null = null;
+
+/**
+ * Build pg SSL configuration from sslMode.
+ *
+ * ssl: "require" means encrypted connection but does NOT verify the server
+ * certificate (rejectUnauthorized defaults to false in node-postgres).
+ * This is documented as a limitation: we do NOT claim production-grade
+ * verified TLS. Certificate verification requires additional CA configuration
+ * that is out of scope for this PR.
+ */
+function buildSslConfig(sslMode: string): pg.PoolConfig["ssl"] {
+  if (sslMode === "require") {
+    return { rejectUnauthorized: false };
+  }
+  return false;
+}
 
 /**
  * Connect to the database. Creates a connection pool (singleton).
@@ -18,7 +46,7 @@ let db: NodePgDatabase<typeof schema> | null = null;
  * Safe to call multiple times — subsequent calls return the existing instance.
  * No connection is established at module import time.
  */
-export function connectDatabase(config: DatabaseConfig): NodePgDatabase<typeof schema> {
+export function connectDatabase(config: DatabaseConfig): Database {
   if (pool && db) {
     return db;
   }
@@ -29,6 +57,7 @@ export function connectDatabase(config: DatabaseConfig): NodePgDatabase<typeof s
     max: config.poolMax,
     idleTimeoutMillis: config.idleTimeoutMs,
     connectionTimeoutMillis: config.connectionTimeoutMs,
+    ssl: buildSslConfig(config.sslMode),
   });
 
   db = drizzle(pool, { schema });
@@ -40,7 +69,7 @@ export function connectDatabase(config: DatabaseConfig): NodePgDatabase<typeof s
  * Get the active database instance.
  * Throws if connectDatabase() has not been called.
  */
-export function getDatabase(): NodePgDatabase<typeof schema> {
+export function getDatabase(): Database {
   if (!db) {
     throw new Error(
       "Database not initialized. Call connectDatabase() before using getDatabase().",

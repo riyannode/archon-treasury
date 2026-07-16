@@ -7,10 +7,16 @@
 
 // Configuration
 export { buildDatabaseConfig, databaseConfigSchema } from "./config.js";
-export type { DatabaseConfig } from "./config.js";
+export type { DatabaseConfig, SslMode } from "./config.js";
 
-// Client lifecycle
-export { connectDatabase, getDatabase, getPool, closeDatabase } from "./client.js";
+// Client lifecycle + types
+export {
+  connectDatabase,
+  getDatabase,
+  getPool,
+  closeDatabase,
+} from "./client.js";
+export type { Database, DatabaseTransaction } from "./client.js";
 
 // Health check
 export { checkDatabaseHealth } from "./health.js";

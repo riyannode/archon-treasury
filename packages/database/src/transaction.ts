@@ -1,5 +1,5 @@
-import { type NodePgDatabase } from "drizzle-orm/node-postgres";
 import { getDatabase } from "./client.js";
+import type { Database, DatabaseTransaction } from "./client.js";
 
 /**
  * Execute a callback within a database transaction.
@@ -9,16 +9,18 @@ import { getDatabase } from "./client.js";
  * - Original error is re-thrown after rollback (preserves classification).
  * - No automatic retry — caller decides retry strategy.
  * - No hidden ambiguous side effects.
+ * - Transaction type carries the full schema — future business tables
+ *   are available without changing the public API.
  */
 export async function withTransaction<T>(
-  callback: (tx: NodePgDatabase<Record<string, never>>) => Promise<T>,
-  db?: NodePgDatabase<Record<string, never>>,
+  callback: (tx: DatabaseTransaction) => Promise<T>,
+  db?: Database,
 ): Promise<T> {
   const database = db ?? getDatabase();
 
   return await database.transaction(async (tx) => {
     try {
-      const result = await callback(tx as NodePgDatabase<Record<string, never>>);
+      const result = await callback(tx);
       return result;
     } catch (error) {
       // Transaction is automatically rolled back by drizzle-orm on throw

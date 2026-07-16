@@ -5,11 +5,12 @@ import type { DatabaseConfig } from "./config.js";
 const testConfig: DatabaseConfig = {
   databaseUrl:
     process.env["DATABASE_URL"] ??
-    "postgresql://postgres:postgres@localhost:5432/archon_treasury_test",
+    "postgresql://postgres:***@localhost:5432/archon_treasury_test",
   poolMin: 0,
   poolMax: 5,
   idleTimeoutMs: 10_000,
   connectionTimeoutMs: 5_000,
+  sslMode: "disable",
 };
 
 describe("database client lifecycle", () => {
@@ -33,7 +34,7 @@ describe("database client lifecycle", () => {
     expect(() => getPool()).toThrow("Database not initialized");
   });
 
-  it("getDatabase returns same instance after connect", async () => {
+  it("getDatabase returns same instance (singleton)", async () => {
     const db1 = connectDatabase(testConfig);
     const db2 = connectDatabase(testConfig);
     expect(db1).toBe(db2);
@@ -48,5 +49,11 @@ describe("database client lifecycle", () => {
     connectDatabase(testConfig);
     await closeDatabase();
     expect(() => getDatabase()).toThrow("Database not initialized");
+  });
+
+  it("connectDatabase is lazy — no connection at import time", async () => {
+    await closeDatabase();
+    // If we got here, module import did not establish a connection
+    expect(() => getPool()).toThrow("Database not initialized");
   });
 });

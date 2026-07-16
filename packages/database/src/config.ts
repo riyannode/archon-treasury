@@ -3,9 +3,11 @@ import { z } from "zod";
 /**
  * Database connection configuration.
  *
- * Derived from environment variables validated by @archon-treasury/config.
+ * All values are provided explicitly — never reads process.env.
  * Credentials are never logged or exported in plaintext.
  */
+
+const sslModeSchema = z.enum(["disable", "require"]).default("disable");
 
 export const databaseConfigSchema = z.object({
   databaseUrl: z.string().min(1, "DATABASE_URL is required"),
@@ -13,23 +15,26 @@ export const databaseConfigSchema = z.object({
   poolMax: z.coerce.number().int().min(1).max(100).default(10),
   idleTimeoutMs: z.coerce.number().int().min(1000).max(300_000).default(10_000),
   connectionTimeoutMs: z.coerce.number().int().min(1000).max(60_000).default(5_000),
+  sslMode: sslModeSchema,
 });
 
 export type DatabaseConfig = z.infer<typeof databaseConfigSchema>;
+export type SslMode = z.infer<typeof sslModeSchema>;
 
 /**
- * Build database config from validated AppConfig or raw env.
- * Extracts pool settings from process.env with safe defaults.
+ * Build and validate database config from explicit properties.
+ *
+ * All values must be provided by the caller (typically packages/config loadConfig).
+ * This function NEVER reads process.env — ambient env reads belong only in
+ * @archon-treasury/config.
  */
-export function buildDatabaseConfig(
-  databaseUrl: string,
-  env: Record<string, unknown> = process.env,
-): DatabaseConfig {
-  return databaseConfigSchema.parse({
-    databaseUrl,
-    poolMin: env["DATABASE_POOL_MIN"],
-    poolMax: env["DATABASE_POOL_MAX"],
-    idleTimeoutMs: env["DATABASE_IDLE_TIMEOUT_MS"],
-    connectionTimeoutMs: env["DATABASE_CONNECTION_TIMEOUT_MS"],
-  });
+export function buildDatabaseConfig(input: {
+  databaseUrl: string;
+  poolMin?: number;
+  poolMax?: number;
+  idleTimeoutMs?: number;
+  connectionTimeoutMs?: number;
+  sslMode?: SslMode;
+}): DatabaseConfig {
+  return databaseConfigSchema.parse(input);
 }
