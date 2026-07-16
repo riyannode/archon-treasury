@@ -14,7 +14,6 @@ import {
   suspendOrganization,
   activateOrganization,
   validateOrganizationName,
-  isValidOrganizationName,
   type Organization,
 } from "./organization.js";
 import {
@@ -25,8 +24,6 @@ import {
   DataIntegrityError,
   organizationNotFoundError,
   organizationSlugConflictError,
-  invalidOrganizationNameError,
-  invalidOrganizationSlugError,
   emptyUpdateError,
   organizationPersistenceError,
 } from "./errors.js";
@@ -333,17 +330,6 @@ describe("Organization entity", () => {
         slug: OrganizationSlug.parse("test"),
       });
       expect(org.createdAt.getTime()).toBe(org.updatedAt.getTime());
-    });
-
-    it("id is required at the type level (no optional)", () => {
-      // Compile-time proof: CreateOrganizationInput requires id.
-      // The @ts-expect-error below proves that omitting id is a type error.
-      // At runtime, the function still accepts the object (JS has no runtime
-      // enforcement), but the type system prevents callers from omitting id.
-      // @ts-expect-error — id is required in CreateOrganizationInput
-      const input = { name: "Test", slug: OrganizationSlug.parse("t") };
-      // We just verify the input was created (compile-time check is the real test)
-      expect(input.name).toBe("Test");
     });
   });
 
