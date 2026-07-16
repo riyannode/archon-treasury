@@ -11,6 +11,9 @@ export default defineConfig({
   schema: "./src/schema/index.ts",
   out: "./migrations",
   dialect: "postgresql",
+  migrations: {
+    schema: "public",
+  },
   dbCredentials: {
     url: process.env["DATABASE_URL"] ?? "",
   },

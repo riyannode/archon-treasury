@@ -118,21 +118,21 @@ jobs:
           # Service container starts with archon_treasury_test DB (empty)
           # Run committed baseline migration
           pnpm --filter @archon-treasury/database db:migrate
-      - name: Verify migration metadata recorded
+      - name: Verify migration metadata in public schema
         run: |
-          # Verify __drizzle_migrations table exists with exactly 1 row
+          # Migration metadata stored explicitly in public.__drizzle_migrations
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
-            "SELECT COUNT(*) FROM __drizzle_migrations;")
+            "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after first run: $COUNT"
           [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record, got $COUNT"; exit 1; }
-          echo "✓ Migration metadata recorded (1 record)"
+          echo "✓ Migration metadata recorded (1 record in public schema)"
       - name: Verify migration rerun is idempotent
         run: |
           # Running migration again should be a no-op
           pnpm --filter @archon-treasury/database db:migrate
           # Verify count is still 1
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
-            "SELECT COUNT(*) FROM __drizzle_migrations;")
+            "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after rerun: $COUNT"
           [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record after rerun, got $COUNT"; exit 1; }
           echo "✓ Migration rerun is idempotent (still 1 record)"
