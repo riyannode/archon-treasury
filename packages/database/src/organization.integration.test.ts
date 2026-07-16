@@ -19,6 +19,8 @@ import {
   beforeEach,
 } from "vitest";
 import pg from "pg";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { fileURLToPath } from "node:url";
 import {
   connectDatabase,
   closeDatabase,
@@ -75,6 +77,12 @@ beforeAll(async () => {
   } finally {
     await adminPool.end();
   }
+
+  const db = connectDatabase(testConfig);
+  await migrate(db, {
+    migrationsFolder: fileURLToPath(new URL("../migrations", import.meta.url)),
+  });
+  await closeDatabase();
 });
 
 afterAll(async () => {

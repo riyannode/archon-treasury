@@ -30,3 +30,5 @@ export * from "./schema/index.js";
 
 // Repository implementations
 export { PgOrganizationRepository } from "./repositories/organization-repository.js";
+export { PgUserRepository } from "./repositories/user-repository.js";
+export { PgOrganizationMemberRepository } from "./repositories/organization-member-repository.js";

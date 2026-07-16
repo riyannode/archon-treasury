@@ -73,6 +73,7 @@ function createIdentifier<K extends string, T extends string>(
 
 export type UserId = Brand<"UserId", string>;
 export type OrganizationId = Brand<"OrganizationId", string>;
+export type MembershipId = Brand<"MembershipId", string>;
 export type TreasuryId = Brand<"TreasuryId", string>;
 export type WalletId = Brand<"WalletId", string>;
 
@@ -89,6 +90,11 @@ export const OrganizationId = createIdentifier<
 >({
   brand: "OrganizationId",
   errorMessage: "Invalid OrganizationId: must be a valid UUID string",
+});
+
+export const MembershipId = createIdentifier<"MembershipId", MembershipId>({
+  brand: "MembershipId",
+  errorMessage: "Invalid MembershipId: must be a valid UUID string",
 });
 
 export const TreasuryId = createIdentifier<"TreasuryId", TreasuryId>({
