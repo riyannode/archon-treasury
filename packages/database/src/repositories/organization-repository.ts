@@ -37,77 +37,46 @@ import {
 // ── Row → Domain mapping (with validation) ────────────────────────────────
 
 function rowToOrganization(row: OrganizationRow): Organization {
-  // Validate ID
   const id = OrganizationId.safe(row.id);
-  if (id === null) {
-    throw organizationPersistenceError(
-      `invalid persisted ID`,
-    );
-  }
+  if (id === null) throw organizationPersistenceError("invalid persisted ID");
 
-  // Validate name
   let name: string;
-  try {
-    name = validateOrganizationName(row.name);
-  } catch {
-    throw organizationPersistenceError(
-      `invalid persisted name`,
-    );
-  }
+  try { name = validateOrganizationName(row.name); }
+  catch { throw organizationPersistenceError("invalid persisted name"); }
 
-  // Validate slug
   const slug = OrganizationSlug.safe(row.slug);
-  if (slug === null) {
-    throw organizationPersistenceError(
-      `invalid persisted slug`,
-    );
-  }
+  if (slug === null) throw organizationPersistenceError("invalid persisted slug");
 
-  // Validate status
   let status: OrganizationStatus;
-  try {
-    status = validateOrganizationStatus(row.status);
-  } catch {
-    throw organizationPersistenceError(
-      `invalid persisted status`,
-    );
-  }
+  try { status = validateOrganizationStatus(row.status); }
+  catch { throw organizationPersistenceError("invalid persisted status"); }
 
-  // Validate timestamps
-  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime())) {
-    throw organizationPersistenceError(
-      `invalid persisted createdAt`,
-    );
-  }
-  if (!(row.updatedAt instanceof Date) || Number.isNaN(row.updatedAt.getTime())) {
-    throw organizationPersistenceError(
-      `invalid persisted updatedAt`,
-    );
-  }
+  if (!(row.createdAt instanceof Date) || Number.isNaN(row.createdAt.getTime()))
+    throw organizationPersistenceError("invalid persisted createdAt");
+  if (!(row.updatedAt instanceof Date) || Number.isNaN(row.updatedAt.getTime()))
+    throw organizationPersistenceError("invalid persisted updatedAt");
 
+  return { id, name, slug, status, createdAt: row.createdAt, updatedAt: row.updatedAt };
+}
+
+function rowFromJson(raw: Record<string, unknown>): OrganizationRow {
   return {
-    id,
-    name,
-    slug,
-    status,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
+    id: raw["id"] as string,
+    name: raw["name"] as string,
+    slug: raw["slug"] as string,
+    status: raw["status"] as "active" | "suspended",
+    createdAt: raw["created_at"] as Date,
+    updatedAt: raw["updated_at"] as Date,
   };
 }
 
 // ── Repository ────────────────────────────────────────────────────────────
 
 export class PgOrganizationRepository implements OrganizationRepository {
-  /**
-   * Accept a typed database or transaction handle.
-   * The caller controls the transaction boundary.
-   */
   constructor(private readonly db: Database | DatabaseTransaction) {}
 
   async create(input: CreateOrganizationInput): Promise<Organization> {
-    // Validate before query
     const trimmedName = validateOrganizationName(input.name);
-
     const now = new Date();
     const newRow = {
       id: OrganizationId.serialize(input.id),
@@ -119,139 +88,129 @@ export class PgOrganizationRepository implements OrganizationRepository {
     };
 
     try {
-      const result = await this.db
-        .insert(organizations)
-        .values(newRow)
-        .returning();
-
+      const result = await this.db.insert(organizations).values(newRow).returning();
       const row = result[0];
-      if (!row) {
-        throw organizationPersistenceError("create returned no rows");
-      }
-
+      if (!row) throw organizationPersistenceError("create returned no rows");
       return rowToOrganization(row);
     } catch (error: unknown) {
-      // Map PostgreSQL unique violation (23505) ONLY for the slug constraint
-      if (isSlugUniqueViolation(error)) {
-        throw organizationSlugConflictError(
-          OrganizationSlug.serialize(input.slug),
-        );
-      }
+      if (isSlugUniqueViolation(error))
+        throw organizationSlugConflictError(OrganizationSlug.serialize(input.slug));
       throw error;
     }
   }
 
-  async findById(
-    id: import("@archon-treasury/domain").OrganizationId,
-  ): Promise<Organization | null> {
+  async findById(id: import("@archon-treasury/domain").OrganizationId): Promise<Organization | null> {
     const result = await this.db
-      .select()
-      .from(organizations)
+      .select().from(organizations)
       .where(eq(organizations.id, OrganizationId.serialize(id)))
       .limit(1);
-
     const row = result[0];
     return row ? rowToOrganization(row) : null;
   }
 
   async findBySlug(slug: OrganizationSlugType): Promise<Organization | null> {
     const result = await this.db
-      .select()
-      .from(organizations)
+      .select().from(organizations)
       .where(eq(organizations.slug, OrganizationSlug.serialize(slug)))
       .limit(1);
-
     const row = result[0];
     return row ? rowToOrganization(row) : null;
   }
 
   async update(input: UpdateOrganizationInput): Promise<Organization> {
-    // Build update payload — only defined fields
-    const updates: Record<string, unknown> = {};
-
-    if (input.name !== undefined) {
-      updates["name"] = validateOrganizationName(input.name);
-    }
-
-    if (input.slug !== undefined) {
-      updates["slug"] = OrganizationSlug.serialize(input.slug);
-    }
-
-    if (input.status !== undefined) {
-      updates["status"] = validateOrganizationStatus(input.status);
-    }
-
-    // Reject empty update
-    if (Object.keys(updates).length === 0) {
-      throw emptyUpdateError();
-    }
-
-    // CTE: fetch current row, compare values, only update if something changed.
-    // This is atomic — no check-then-update race.
-    const idStr = OrganizationId.serialize(input.id);
-    const now = new Date();
-
-    // Build the SET clause dynamically using Drizzle's SQL template
+    // ── Build SET and WHERE clauses using fixed column names ────────────
     const setClauses: ReturnType<typeof sql>[] = [];
     const whereConditions: ReturnType<typeof sql>[] = [];
 
-    for (const [col, val] of Object.entries(updates)) {
-      const colRef = sql.identifier(col);
-      setClauses.push(sql`${colRef} = ${val}`);
-      // WHERE: current value differs from new value
-      whereConditions.push(sql`${colRef} IS DISTINCT FROM ${val}`);
+    if (input.name !== undefined) {
+      const validated = validateOrganizationName(input.name);
+      setClauses.push(sql`"name" = ${validated}`);
+      whereConditions.push(sql`cur."name" IS DISTINCT FROM ${validated}`);
+    }
+
+    if (input.slug !== undefined) {
+      const serialized = OrganizationSlug.serialize(input.slug);
+      setClauses.push(sql`"slug" = ${serialized}`);
+      whereConditions.push(sql`cur."slug" IS DISTINCT FROM ${serialized}`);
+    }
+
+    if (input.status !== undefined) {
+      const validated = validateOrganizationStatus(input.status);
+      setClauses.push(sql`"status" = ${validated}`);
+      whereConditions.push(sql`cur."status" IS DISTINCT FROM ${validated}`);
     }
 
     if (setClauses.length === 0) {
       throw emptyUpdateError();
     }
 
-    // Single atomic query: UPDATE with conditional WHERE
-    // If no row has changed values, RETURNING is empty → not found or no-op
-    const result = await this.db.execute(sql`
-      WITH current_row AS (
-        SELECT id, ${sql.join(
-          Object.keys(updates).map((col) => sql`${sql.identifier(col)} AS ${sql.identifier(`cur_${col}`)}`),
-          sql`, `,
-        )}
-        FROM ${organizations}
-        WHERE id = ${idStr}
-      ),
-      do_update AS (
-        UPDATE organizations
-        SET ${sql.join(setClauses, sql`, `)}, updated_at = ${now}
-        WHERE id = ${idStr}
-          AND (${sql.join(whereConditions, sql` OR `)})
-        RETURNING *
-      )
-      SELECT * FROM do_update
-    `);
+    const idStr = OrganizationId.serialize(input.id);
 
-    const rows = result.rows as OrganizationRow[];
-    const row = rows[0];
+    // ── Single atomic CTE — exactly one round trip ──────────────────────
+    // current_row: the existing row for outcome determination
+    // do_update: conditional UPDATE only when at least one value differs
+    // SELECT returns exactly one row: outcome ('updated'|'unchanged'|'not_found')
+    //   and the organization as JSON (updated row if updated, current if unchanged)
+    //
+    // Column names ("name", "slug", "status") are hardcoded here, never from caller input.
+    try {
+      const result = await this.db.execute(sql`
+        WITH current_row AS (
+          SELECT * FROM "organizations" WHERE "id" = ${idStr}
+        ),
+        do_update AS (
+          UPDATE "organizations"
+          SET ${sql.join(setClauses, sql`, `)}, "updated_at" = NOW()
+          WHERE "id" = ${idStr}
+            AND (${sql.join(whereConditions, sql` OR `)})
+          RETURNING *
+        )
+        SELECT
+          CASE
+            WHEN EXISTS (SELECT 1 FROM do_update) THEN 'updated'::text
+            WHEN EXISTS (SELECT 1 FROM current_row) THEN 'unchanged'::text
+            ELSE 'not_found'::text
+          END AS outcome,
+          COALESCE(
+            (SELECT row_to_json(t.*) FROM do_update t),
+            (SELECT row_to_json(t.*) FROM current_row t)
+          ) AS organization
+      `);
 
-    if (!row) {
-      // Either the row doesn't exist, or all values are the same.
-      // Check if the row exists at all.
-      const existing = await this.findById(input.id);
-      if (!existing) {
-        throw organizationNotFoundError(idStr);
+      const rows = result.rows as Array<{ outcome: string; organization: Record<string, unknown> }>;
+      const first = rows[0];
+
+      if (!first) throw organizationNotFoundError(idStr);
+
+      switch (first.outcome) {
+        case "updated": {
+          const raw = first.organization;
+          if (!raw) throw organizationPersistenceError("update returned null organization");
+          return rowToOrganization(rowFromJson(raw));
+        }
+        case "unchanged": {
+          const raw = first.organization;
+          if (!raw) throw organizationPersistenceError("unchanged returned null organization");
+          return rowToOrganization(rowFromJson(raw));
+        }
+        case "not_found":
+          throw organizationNotFoundError(idStr);
+        default:
+          throw organizationPersistenceError(`unexpected outcome: ${first.outcome}`);
       }
-      // All values same → deterministic no-op, return existing
-      return existing;
+    } catch (error: unknown) {
+      if (isSlugUniqueViolation(error)) {
+        throw organizationSlugConflictError(
+          input.slug ? OrganizationSlug.serialize(input.slug) : "unknown slug",
+        );
+      }
+      throw error;
     }
-
-    return rowToOrganization(row);
   }
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
-/**
- * Check if a PostgreSQL error is a unique violation on the slug constraint.
- * Checks the constraint name to avoid mapping unrelated unique violations
- * (e.g., PK collision) to slug conflict.
- */
 function isSlugUniqueViolation(error: unknown): boolean {
   if (
     typeof error === "object" &&
