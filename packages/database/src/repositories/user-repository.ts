@@ -146,13 +146,16 @@ export class PgUserRepository implements UserRepository {
     const id = UserId.serialize(input.id);
     try {
       const result = await this.db.execute(sql`
-        WITH current_row AS (
+        WITH current_row AS MATERIALIZED (
           SELECT * FROM "users" WHERE "id" = ${id}
+          FOR UPDATE
         ), updated_row AS (
-          UPDATE "users"
+          UPDATE "users" AS user_record
           SET ${sql.join(sets, sql`, `)}, "updated_at" = NOW()
-          WHERE "id" = ${id} AND (${sql.join(changes, sql` OR `)})
-          RETURNING *
+          FROM current_row AS cur
+          WHERE user_record."id" = cur."id"
+            AND (${sql.join(changes, sql` OR `)})
+          RETURNING user_record.*
         )
         SELECT
           CASE WHEN u."id" IS NOT NULL THEN 'updated'
@@ -177,11 +180,20 @@ export class PgUserRepository implements UserRepository {
         email: resultRow["email"] as string,
         displayName: resultRow["display_name"] as string,
         status: resultRow["status"] as "active" | "suspended",
-        createdAt: resultRow["created_at"] as Date,
-        updatedAt: resultRow["updated_at"] as Date,
+        createdAt: queryTimestamp(resultRow["created_at"], "createdAt"),
+        updatedAt: queryTimestamp(resultRow["updated_at"], "updatedAt"),
       });
     } catch (error) {
       throw mapDatabaseError(error);
     }
   }
+}
+
+function queryTimestamp(value: unknown, field: "createdAt" | "updatedAt"): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  throw userPersistenceError(`invalid persisted ${field}`);
 }

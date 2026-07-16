@@ -206,16 +206,18 @@ export class PgOrganizationMemberRepository
     const organizationId = OrganizationId.serialize(input.organizationId);
     try {
       const result = await this.db.execute(sql`
-        WITH current_row AS (
+        WITH current_row AS MATERIALIZED (
           SELECT * FROM "organization_members"
           WHERE "id" = ${id} AND "organization_id" = ${organizationId}
+          FOR UPDATE
         ), updated_row AS (
-          UPDATE "organization_members"
+          UPDATE "organization_members" AS member
           SET ${sql.join(sets, sql`, `)}, "updated_at" = NOW()
-          WHERE "id" = ${id}
-            AND "organization_id" = ${organizationId}
+          FROM current_row AS cur
+          WHERE member."id" = cur."id"
+            AND member."organization_id" = cur."organization_id"
             AND (${sql.join(changes, sql` OR `)})
-          RETURNING *
+          RETURNING member.*
         )
         SELECT
           CASE WHEN u."id" IS NOT NULL THEN 'updated'
@@ -242,11 +244,20 @@ export class PgOrganizationMemberRepository
         userId: resultRow["user_id"] as string,
         role: resultRow["role"] as string,
         status: resultRow["status"] as string,
-        createdAt: resultRow["created_at"] as Date,
-        updatedAt: resultRow["updated_at"] as Date,
+        createdAt: queryTimestamp(resultRow["created_at"], "createdAt"),
+        updatedAt: queryTimestamp(resultRow["updated_at"], "updatedAt"),
       });
     } catch (error) {
       throw mapDatabaseError(error);
     }
   }
+}
+
+function queryTimestamp(value: unknown, field: "createdAt" | "updatedAt"): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  throw membershipPersistenceError(`invalid persisted ${field}`);
 }

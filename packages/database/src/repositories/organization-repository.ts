@@ -144,15 +144,17 @@ export class PgOrganizationRepository implements OrganizationRepository {
     // Column names ("name", "slug", "status") are hardcoded, never from caller input.
     try {
       const result = await this.db.execute(sql`
-        WITH current_row AS (
+        WITH current_row AS MATERIALIZED (
           SELECT * FROM "organizations" WHERE "id" = ${idStr}
+          FOR UPDATE
         ),
         do_update AS (
-          UPDATE "organizations"
+          UPDATE "organizations" AS organization
           SET ${sql.join(setClauses, sql`, `)}, "updated_at" = NOW()
-          WHERE "id" = ${idStr}
+          FROM current_row AS cur
+          WHERE organization."id" = cur."id"
             AND (${sql.join(whereConditions, sql` OR `)})
-          RETURNING *
+          RETURNING organization.*
         )
         SELECT
           CASE
@@ -186,8 +188,8 @@ export class PgOrganizationRepository implements OrganizationRepository {
         name: first["name"] as string,
         slug: first["slug"] as string,
         status: first["status"] as "active" | "suspended",
-        createdAt: first["created_at"] as Date,
-        updatedAt: first["updated_at"] as Date,
+        createdAt: queryTimestamp(first["created_at"], "createdAt"),
+        updatedAt: queryTimestamp(first["updated_at"], "updatedAt"),
       };
 
       return rowToOrganization(row);
@@ -205,20 +207,31 @@ export class PgOrganizationRepository implements OrganizationRepository {
 // ── Helpers ───────────────────────────────────────────────────────────────
 
 function isSlugUniqueViolation(error: unknown): boolean {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code: string }).code === "23505"
-  ) {
-    const detail = (error as { detail?: string }).detail ?? "";
-    const constraint = (error as { constraint?: string }).constraint ?? "";
+  let current: unknown = error;
+  const seen = new Set<unknown>();
+  while (typeof current === "object" && current !== null && !seen.has(current)) {
+    seen.add(current);
+    const candidate = current as {
+      code?: unknown;
+      constraint?: unknown;
+      cause?: unknown;
+    };
     if (
-      constraint === "organizations_slug_unique" ||
-      detail.includes("organizations_slug_unique")
+      candidate.code === "23505" &&
+      candidate.constraint === "organizations_slug_unique"
     ) {
       return true;
     }
+    current = candidate.cause;
   }
   return false;
+}
+
+function queryTimestamp(value: unknown, field: "createdAt" | "updatedAt"): Date {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) return value;
+  if (typeof value === "string") {
+    const parsed = new Date(value);
+    if (!Number.isNaN(parsed.getTime())) return parsed;
+  }
+  throw organizationPersistenceError(`invalid persisted ${field}`);
 }

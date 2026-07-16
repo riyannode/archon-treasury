@@ -118,6 +118,35 @@ export type {
   UpdateOrganizationInput,
 } from "./organization-repository.js";
 
+// ── Treasury Domain ───────────────────────────────────────────────────────
+
+export type { Treasury } from "./treasury.js";
+export {
+  TreasuryStatus,
+  TreasuryEnvironment,
+  TREASURY_NAME_MAX_LENGTH,
+  TREASURY_NAME_RAW_MAX_LENGTH,
+  isValidTreasuryStatus,
+  validateTreasuryStatus,
+  isValidTreasuryEnvironment,
+  validateTreasuryEnvironment,
+  validateTreasuryName,
+  validateTreasuryTimestamp,
+  createTreasury,
+  renameTreasury,
+  suspendTreasury,
+  activateTreasury,
+} from "./treasury.js";
+export type {
+  CreateTreasuryEntityInput,
+  RenameTreasuryInput,
+} from "./treasury.js";
+export type {
+  TreasuryRepository,
+  CreateTreasuryInput,
+  UpdateTreasuryInput,
+} from "./treasury-repository.js";
+
 // ── User Domain ───────────────────────────────────────────────────────────
 
 export type { User } from "./user.js";
@@ -203,4 +232,11 @@ export {
   membershipPersistenceError,
   principalNotOperationalError,
   permissionDeniedError,
+  invalidTreasuryNameError,
+  invalidTreasuryStatusError,
+  invalidTreasuryEnvironmentError,
+  treasuryConflictError,
+  treasuryNotFoundError,
+  treasuryPersistenceError,
+  emptyTreasuryUpdateError,
 } from "./errors.js";

@@ -13,7 +13,7 @@ export default defineConfig({
   test: {
     globals: true,
     fileParallelism: false,
-    include: ["src/**/integration.test.ts"],
+    include: ["src/**/*integration.test.ts"],
     exclude: ["node_modules", "dist"],
   },
 });
