@@ -28,6 +28,7 @@
   },
   "dependencies": {
     "@archon-treasury/config": "workspace:*",
+    "@archon-treasury/domain": "workspace:*",
     "drizzle-orm": "^0.44.0",
     "pg": "^8.16.0",
     "zod": "^4.4.3"
