@@ -66,7 +66,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:***@localhost:5432/archon_treasury_test
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/archon_treasury_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -78,6 +78,66 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:unit
+
+  db-integration:
+    name: Database Integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: archon_treasury_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/archon_treasury_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify PostgreSQL is healthy
+        run: |
+          for i in $(seq 1 10); do
+            pg_isready -h localhost -p 5432 -U postgres && break || sleep 2
+          done
+      - name: Run baseline migration on empty database
+        run: |
+          # Service container starts with archon_treasury_test DB (empty)
+          # Run committed baseline migration
+          pnpm --filter @archon-treasury/database db:migrate
+      - name: Verify migration metadata in public schema
+        run: |
+          # Migration metadata stored explicitly in public.__drizzle_migrations
+          COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
+            "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
+          echo "Migration records after first run: $COUNT"
+          [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record, got $COUNT"; exit 1; }
+          echo "✓ Migration metadata recorded (1 record in public schema)"
+      - name: Verify migration rerun is idempotent
+        run: |
+          # Running migration again should be a no-op
+          pnpm --filter @archon-treasury/database db:migrate
+          # Verify count is still 1
+          COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
+            "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
+          echo "Migration records after rerun: $COUNT"
+          [ "$COUNT" = "1" ] || { echo "FAIL: expected 1 migration record after rerun, got $COUNT"; exit 1; }
+          echo "✓ Migration rerun is idempotent (still 1 record)"
+      - name: Run database integration tests
+        run: pnpm --filter @archon-treasury/database test:integration
 
   build:
     name: Build

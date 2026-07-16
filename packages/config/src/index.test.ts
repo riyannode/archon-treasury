@@ -22,6 +22,7 @@ describe("envSchema", () => {
         PORT: "8080",
         LOG_LEVEL: "warn",
         DATABASE_URL: "postgres://localhost/archon",
+        DATABASE_SSL_MODE: "require",
         CIRCLE_API_KEY: "test-key",
       }),
     );
@@ -29,6 +30,7 @@ describe("envSchema", () => {
     expect(result.PORT).toBe(8080);
     expect(result.LOG_LEVEL).toBe("warn");
     expect(result.DATABASE_URL).toBe("postgres://localhost/archon");
+    expect(result.DATABASE_SSL_MODE).toBe("require");
     expect(result.CIRCLE_API_KEY).toBe("test-key");
   });
 
@@ -38,7 +40,42 @@ describe("envSchema", () => {
     expect(result.PORT).toBe(3000);
     expect(result.LOG_LEVEL).toBe("info");
     expect(result.DATABASE_URL).toBeUndefined();
+    expect(result.DATABASE_SSL_MODE).toBeUndefined();
     expect(result.CIRCLE_API_KEY).toBeUndefined();
+  });
+
+  it("parses DATABASE_POOL_MIN/MAX when provided", () => {
+    const result = envSchema.parse(
+      cleanEnv({
+        DATABASE_URL: "postgres://localhost/archon",
+        DATABASE_POOL_MIN: "2",
+        DATABASE_POOL_MAX: "20",
+      }),
+    );
+    expect(result.DATABASE_POOL_MIN).toBe(2);
+    expect(result.DATABASE_POOL_MAX).toBe(20);
+  });
+
+  it("DATABASE_POOL_MIN/MAX undefined when absent", () => {
+    const result = envSchema.parse(cleanEnv());
+    expect(result.DATABASE_POOL_MIN).toBeUndefined();
+    expect(result.DATABASE_POOL_MAX).toBeUndefined();
+  });
+
+  it("parses DATABASE_SSL_MODE disable", () => {
+    const result = envSchema.parse(cleanEnv({ DATABASE_SSL_MODE: "disable" }));
+    expect(result.DATABASE_SSL_MODE).toBe("disable");
+  });
+
+  it("parses DATABASE_SSL_MODE require", () => {
+    const result = envSchema.parse(cleanEnv({ DATABASE_SSL_MODE: "require" }));
+    expect(result.DATABASE_SSL_MODE).toBe("require");
+  });
+
+  it("rejects invalid DATABASE_SSL_MODE", () => {
+    expect(() =>
+      envSchema.parse(cleanEnv({ DATABASE_SSL_MODE: "verify-full" })),
+    ).toThrow();
   });
 });
 
@@ -67,6 +104,40 @@ describe("loadConfig", () => {
     );
     expect(config.databaseUrl).toBe("postgres://db:5432/archon");
     expect(config.circleApiKey).toBe("sec_test_123");
+  });
+
+  it("includes database pool settings when provided", () => {
+    const config = loadConfig(
+      cleanEnv({
+        DATABASE_URL: "postgres://db:5432/archon",
+        DATABASE_POOL_MIN: "1",
+        DATABASE_POOL_MAX: "15",
+        DATABASE_IDLE_TIMEOUT_MS: "20000",
+        DATABASE_CONNECTION_TIMEOUT_MS: "8000",
+      }),
+    );
+    expect(config.databasePoolMin).toBe(1);
+    expect(config.databasePoolMax).toBe(15);
+    expect(config.databaseIdleTimeoutMs).toBe(20000);
+    expect(config.databaseConnectionTimeoutMs).toBe(8000);
+  });
+
+  it("pool settings undefined when absent", () => {
+    const config = loadConfig(cleanEnv());
+    expect(config.databasePoolMin).toBeUndefined();
+    expect(config.databasePoolMax).toBeUndefined();
+    expect(config.databaseIdleTimeoutMs).toBeUndefined();
+    expect(config.databaseConnectionTimeoutMs).toBeUndefined();
+  });
+
+  it("includes databaseSslMode when provided", () => {
+    const config = loadConfig(cleanEnv({ DATABASE_SSL_MODE: "require" }));
+    expect(config.databaseSslMode).toBe("require");
+  });
+
+  it("databaseSslMode undefined when absent", () => {
+    const config = loadConfig(cleanEnv());
+    expect(config.databaseSslMode).toBeUndefined();
   });
 
   it("uses defaults for missing fields", () => {

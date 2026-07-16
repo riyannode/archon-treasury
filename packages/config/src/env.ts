@@ -14,6 +14,7 @@ const optionalNonEmptyString = z.preprocess(
  *
  * - NODE_ENV, PORT, LOG_LEVEL have defaults
  * - DATABASE_URL and CIRCLE_API_KEY are truly optional (undefined when unset)
+ * - DATABASE_POOL_* and DATABASE_SSL_MODE are optional with safe defaults
  * - Fail-fast: parse() throws on invalid values
  */
 export const envSchema = z.object({
@@ -31,6 +32,15 @@ export const envSchema = z.object({
   LOG_LEVEL: z.enum(["debug", "info", "warn", "error"]).default("info"),
 
   DATABASE_URL: optionalNonEmptyString,
+
+  // Pool settings — optional with safe defaults
+  DATABASE_POOL_MIN: z.coerce.number().int().min(0).max(100).optional(),
+  DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).optional(),
+  DATABASE_IDLE_TIMEOUT_MS: z.coerce.number().int().min(1000).max(300_000).optional(),
+  DATABASE_CONNECTION_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).optional(),
+
+  // TLS — default "disable" for local/test; explicit "require" for production
+  DATABASE_SSL_MODE: z.enum(["disable", "require"]).optional(),
 
   CIRCLE_API_KEY: optionalNonEmptyString,
 });

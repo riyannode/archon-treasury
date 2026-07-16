@@ -16,14 +16,20 @@ Working monorepo with runnable TypeScript workspaces:
 | `packages/config` | `@archon-treasury/config` | ✅ Environment config loader |
 | `packages/domain` | `@archon-treasury/domain` | ✅ Money value object (USDC) |
 | `packages/observability` | `@archon-treasury/observability` | ✅ Structured JSON logger |
+| `packages/database` | `@archon-treasury/database` | ✅ PostgreSQL schema, migrations, health, transactions |
 
 **Infrastructure:**
 - pnpm workspace monorepo (Node.js ≥22, pnpm ≥9)
 - Shared TypeScript config (`tsconfig.base.json`)
 - ESLint flat config with `@typescript-eslint`
-- Vitest test runner (10 tests across 4 files)
-- GitHub Actions CI (lint → typecheck → test → build)
+- Vitest test runner (unit + integration suites)
+- GitHub Actions CI (lint → typecheck → test → build → Docker)
 - Docker Compose (PostgreSQL + Redis)
+
+**Database:**
+- Drizzle ORM with PostgreSQL
+- Migration metadata stored in `public.__drizzle_migrations` (explicit, not Drizzle default)
+- CI verification uses schema-qualified queries against `public` schema
 
 **Commands:**
 ```bash

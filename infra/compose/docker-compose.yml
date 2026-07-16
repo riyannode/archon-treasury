@@ -1,11 +1,12 @@
-# ==============================================================================
+# =============================================================================
 # Archon Treasury — Docker Compose (Local Development)
-# ==============================================================================
+# =============================================================================
 version: "3.9"
 
 services:
   postgres:
     image: postgres:16
+    container_name: archon-treasury-postgres
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
@@ -15,7 +16,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d archon_treasury"]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -38,7 +39,7 @@ services:
       - "3000:3000"
     environment:
       PORT: "3000"
-      DATABASE_URL: postgresql://postgres:***@postgres:5432/archon_treasury
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/archon_treasury
     depends_on:
       postgres:
         condition: service_healthy
