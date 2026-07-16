@@ -58,6 +58,8 @@ User Approve → API → Execution Worker → DCW → App Kit/CCTP → Arc → R
 See PRD Section 21 for full schema. Key entities:
 
 - `organizations` — tenant root
+- `users` — minimal identities that may belong to multiple organizations
+- `organization_members` — organization-scoped role and membership status
 - `treasuries` — logical asset pool
 - `wallets` — DCW and agent wallet records
 - `policies` — versioned policy rules

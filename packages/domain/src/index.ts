@@ -32,6 +32,7 @@ export type { Brand } from "./identifiers.js";
 export {
   UserId,
   OrganizationId,
+  MembershipId,
   TreasuryId,
   WalletId,
 } from "./identifiers.js";
@@ -116,3 +117,90 @@ export type {
   CreateOrganizationInput,
   UpdateOrganizationInput,
 } from "./organization-repository.js";
+
+// ── User Domain ───────────────────────────────────────────────────────────
+
+export type { User } from "./user.js";
+export {
+  UserStatus,
+  isValidUserStatus,
+  validateUserStatus,
+  createUser,
+  updateUserEmail,
+  updateUserDisplayName,
+  suspendUser,
+  activateUser,
+  validateUserDisplayName,
+  isValidDisplayName,
+} from "./user.js";
+export { UserEmail, normalizeEmail } from "./user-email.js";
+export type { UserEmail as UserEmailValue } from "./user-email.js";
+
+export type {
+  UserRepository,
+  CreateUserInput,
+  UpdateUserInput,
+} from "./user-repository.js";
+
+// ── OrganizationMember Domain ─────────────────────────────────────────────
+
+export type { OrganizationMember } from "./organization-member.js";
+export {
+  MembershipRole,
+  MembershipStatus,
+  isValidMembershipRole,
+  validateMembershipRole,
+  isValidMembershipStatus,
+  validateMembershipStatus,
+  createOrganizationMember,
+  updateMembershipRole,
+  updateMembershipStatus,
+} from "./organization-member.js";
+
+export type {
+  OrganizationMemberRepository,
+  CreateOrganizationMemberInput,
+  UpdateOrganizationMemberInput,
+} from "./organization-member-repository.js";
+
+// ── RBAC ──────────────────────────────────────────────────────────────────
+
+export {
+  Permission,
+  hasRolePermission,
+  hasOrganizationPermission,
+  assertOrganizationPermission,
+  canManageMembers,
+  canManageTreasury,
+  canCreateRouteIntent,
+  canApproveProposal,
+  canReadExecution,
+  canReadAudit,
+  canManageEmergencyStop,
+} from "./rbac.js";
+export type { OrganizationPermissionSubject } from "./rbac.js";
+
+// ── Owner Bootstrap ──────────────────────────────────────────────────────
+
+export {
+  createActiveOwnerMembership,
+  type CreateActiveOwnerMembershipInput,
+} from "./owner-bootstrap.js";
+
+// ── Additional Domain Errors ─────────────────────────────────────────────
+
+export {
+  userNotFoundError,
+  userEmailConflictError,
+  invalidUserEmailError,
+  invalidUserDisplayNameError,
+  invalidUserStatusError,
+  userPersistenceError,
+  membershipNotFoundError,
+  membershipConflictError,
+  invalidMembershipRoleError,
+  invalidMembershipStatusError,
+  membershipPersistenceError,
+  principalNotOperationalError,
+  permissionDeniedError,
+} from "./errors.js";

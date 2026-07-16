@@ -125,8 +125,8 @@ jobs:
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
             "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after first run: $COUNT"
-          [ "$COUNT" = "2" ] || { echo "FAIL: expected 2 migration records, got $COUNT"; exit 1; }
-          echo "✓ Migration metadata recorded (2 records in public schema)"
+          [ "$COUNT" = "3" ] || { echo "FAIL: expected 3 migration records, got $COUNT"; exit 1; }
+          echo "✓ Migration metadata recorded (3 records in public schema)"
       - name: Verify migration rerun is idempotent
         run: |
           # Running migration again should be a no-op
@@ -135,8 +135,8 @@ jobs:
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
             "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after rerun: $COUNT"
-          [ "$COUNT" = "2" ] || { echo "FAIL: expected 2 migration records after rerun, got $COUNT"; exit 1; }
-          echo "✓ Migration rerun is idempotent (still 2 records)"
+          [ "$COUNT" = "3" ] || { echo "FAIL: expected 3 migration records after rerun, got $COUNT"; exit 1; }
+          echo "✓ Migration rerun is idempotent (still 3 records)"
       - name: Run database integration tests
         run: pnpm --filter @archon-treasury/database test:integration
 

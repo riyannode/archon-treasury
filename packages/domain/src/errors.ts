@@ -20,8 +20,11 @@ export class DomainError extends Error {
 }
 
 export class NotFoundError extends DomainError {
-  constructor(entity: string, identifier: string) {
-    super(`${entity} not found: ${identifier}`, "NOT_FOUND");
+  constructor(entity: string, identifier?: string) {
+    super(
+      identifier ? `${entity} not found: ${identifier}` : `${entity} not found`,
+      "NOT_FOUND",
+    );
     this.name = "NotFoundError";
   }
 }
@@ -87,5 +90,76 @@ export function emptyUpdateError(): ValidationError {
 export function organizationPersistenceError(reason: string): DataIntegrityError {
   return new DataIntegrityError(
     `Organization persistence mapping failed: ${reason}`,
+  );
+}
+
+// ── User-specific errors ──────────────────────────────────────────────────
+
+export function userNotFoundError(): NotFoundError {
+  return new NotFoundError("User");
+}
+
+export function userEmailConflictError(): ConflictError {
+  return new ConflictError("A user with this email already exists");
+}
+
+export function invalidUserEmailError(): ValidationError {
+  return new ValidationError("Invalid user email");
+}
+
+export function invalidUserDisplayNameError(reason?: string): ValidationError {
+  const msg = reason
+    ? `Invalid user display name: ${reason}`
+    : "Invalid user display name";
+  return new ValidationError(msg);
+}
+
+export function invalidUserStatusError(): ValidationError {
+  return new ValidationError("Invalid user status");
+}
+
+export function userPersistenceError(reason: string): DataIntegrityError {
+  return new DataIntegrityError(`User persistence mapping failed: ${reason}`);
+}
+
+// ── Organization Member-specific errors ───────────────────────────────────
+
+export function membershipNotFoundError(): NotFoundError {
+  return new NotFoundError("OrganizationMember");
+}
+
+export function membershipConflictError(): ConflictError {
+  return new ConflictError(
+    "User already has a membership in this organization",
+  );
+}
+
+export function invalidMembershipRoleError(): ValidationError {
+  return new ValidationError("Invalid membership role");
+}
+
+export function invalidMembershipStatusError(): ValidationError {
+  return new ValidationError("Invalid membership status");
+}
+
+export function membershipPersistenceError(reason: string): DataIntegrityError {
+  return new DataIntegrityError(
+    `OrganizationMember persistence mapping failed: ${reason}`,
+  );
+}
+
+// ── RBAC errors ───────────────────────────────────────────────────────────
+
+export function principalNotOperationalError(): DomainError {
+  return new DomainError(
+    "Principal is not operational",
+    "PRINCIPAL_NOT_OPERATIONAL",
+  );
+}
+
+export function permissionDeniedError(permission: string): DomainError {
+  return new DomainError(
+    `Permission denied: ${permission}`,
+    "PERMISSION_DENIED",
   );
 }

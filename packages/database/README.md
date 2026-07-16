@@ -4,7 +4,7 @@
 
 ## Status
 
-Phase 1 — Organization domain (tenant root). Organizations table and PostgreSQL repository implemented.
+Phase 1 — Organization tenant root, minimal users, organization membership, and explicit RBAC persistence foundation.
 
 ## Architecture
 
@@ -17,14 +17,19 @@ packages/database/
 │   ├── transaction.ts     # Typed transaction boundaries (commit/rollback)
 │   ├── schema/
 │   │   ├── index.ts       # Schema export boundary
-│   │   └── organizations.ts  # Organizations table schema
+│   │   ├── organizations.ts       # Tenant root
+│   │   ├── users.ts               # Minimal user identity
+│   │   └── organization-members.ts # User ↔ organization role binding
 │   ├── repositories/
-│   │   └── organization-repository.ts  # PostgreSQL org repository implementation
+│   │   ├── organization-repository.ts
+│   │   ├── user-repository.ts
+│   │   └── organization-member-repository.ts
 │   ├── index.ts           # Public API barrel
 │   └── *.test.ts          # Unit + integration tests
 ├── migrations/            # Drizzle-generated SQL (committed to Git)
 │   ├── 0000_baseline.sql   # Baseline migration (no business tables)
 │   ├── 0001_organization.sql  # Organization table + slug unique index
+│   ├── 0002_users_organization_members.sql
 │   └── meta/
 │       ├── _journal.json
 │       ├── 0000_snapshot.json
@@ -67,8 +72,21 @@ Organization is the **tenant root** for Archon Treasury. All future records (tre
 ### Tenant Boundary
 
 - Organization IS the tenant root
-- Future treasury, wallet, membership, policy, proposal, execution, and audit records will reference `organization_id`
-- PR does NOT implement membership/RBAC, treasury, wallet, or authorization
+- Future treasury, wallet, policy, proposal, execution, and audit records will reference `organization_id`
+- Users may belong to multiple organizations through `organization_members`
+- One `(organization_id, user_id)` membership is allowed per organization
+
+## Users and organization members
+
+`users` stores minimal identity only: normalized lowercase email, display name,
+status, and timestamps. `organization_members` binds a user to the tenant root
+with one of: Owner, Organization Admin, Treasury Operator, Treasury Approver,
+or Auditor.
+
+RBAC is separate from future approval policy. This migration does not grant
+Hermes or other agents financial approval permission and does not implement
+treasury, Circle, CCTP, wallet execution, proposals, authentication, API
+routes, frontend, MCP, or x402 behavior.
 
 ## Repository Interface
 
@@ -157,4 +175,6 @@ DATABASE_URL="postgresql://postgres:***@localhost:5432/archon_treasury_test" \
 - Database config accepts only explicit input — no ambient `process.env` reads
 - No arbitrary SQL, no string interpolation in queries
 - Unique slug conflicts mapped to stable domain errors
+- Duplicate normalized user emails and duplicate organization memberships map to stable conflicts
+- Membership authorization lookups require explicit organization scope
 - No raw PostgreSQL error leakage to callers
