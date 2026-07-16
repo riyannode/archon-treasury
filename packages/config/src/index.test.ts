@@ -40,6 +40,35 @@ describe("envSchema", () => {
     expect(result.DATABASE_URL).toBeUndefined();
     expect(result.CIRCLE_API_KEY).toBeUndefined();
   });
+
+  it("parses DATABASE_POOL_MIN/MAX when provided", () => {
+    const result = envSchema.parse(
+      cleanEnv({
+        DATABASE_URL: "postgres://localhost/archon",
+        DATABASE_POOL_MIN: "2",
+        DATABASE_POOL_MAX: "20",
+      }),
+    );
+    expect(result.DATABASE_POOL_MIN).toBe(2);
+    expect(result.DATABASE_POOL_MAX).toBe(20);
+  });
+
+  it("DATABASE_POOL_MIN/MAX undefined when absent", () => {
+    const result = envSchema.parse(cleanEnv());
+    expect(result.DATABASE_POOL_MIN).toBeUndefined();
+    expect(result.DATABASE_POOL_MAX).toBeUndefined();
+  });
+
+  it("parses DATABASE_IDLE_TIMEOUT_MS and DATABASE_CONNECTION_TIMEOUT_MS", () => {
+    const result = envSchema.parse(
+      cleanEnv({
+        DATABASE_IDLE_TIMEOUT_MS: "30000",
+        DATABASE_CONNECTION_TIMEOUT_MS: "10000",
+      }),
+    );
+    expect(result.DATABASE_IDLE_TIMEOUT_MS).toBe(30000);
+    expect(result.DATABASE_CONNECTION_TIMEOUT_MS).toBe(10000);
+  });
 });
 
 describe("loadConfig", () => {
@@ -67,6 +96,30 @@ describe("loadConfig", () => {
     );
     expect(config.databaseUrl).toBe("postgres://db:5432/archon");
     expect(config.circleApiKey).toBe("sec_test_123");
+  });
+
+  it("includes database pool settings when provided", () => {
+    const config = loadConfig(
+      cleanEnv({
+        DATABASE_URL: "postgres://db:5432/archon",
+        DATABASE_POOL_MIN: "1",
+        DATABASE_POOL_MAX: "15",
+        DATABASE_IDLE_TIMEOUT_MS: "20000",
+        DATABASE_CONNECTION_TIMEOUT_MS: "8000",
+      }),
+    );
+    expect(config.databasePoolMin).toBe(1);
+    expect(config.databasePoolMax).toBe(15);
+    expect(config.databaseIdleTimeoutMs).toBe(20000);
+    expect(config.databaseConnectionTimeoutMs).toBe(8000);
+  });
+
+  it("pool settings undefined when absent", () => {
+    const config = loadConfig(cleanEnv());
+    expect(config.databasePoolMin).toBeUndefined();
+    expect(config.databasePoolMax).toBeUndefined();
+    expect(config.databaseIdleTimeoutMs).toBeUndefined();
+    expect(config.databaseConnectionTimeoutMs).toBeUndefined();
   });
 
   it("uses defaults for missing fields", () => {

@@ -9,6 +9,10 @@ export type AppConfig = {
   port: number;
   logLevel: RawEnv["LOG_LEVEL"];
   databaseUrl?: string;
+  databasePoolMin?: number;
+  databasePoolMax?: number;
+  databaseIdleTimeoutMs?: number;
+  databaseConnectionTimeoutMs?: number;
   circleApiKey?: string;
 };
 
@@ -28,6 +32,10 @@ export function loadConfig(
     port: env.PORT,
     logLevel: env.LOG_LEVEL,
     ...(env.DATABASE_URL !== undefined && { databaseUrl: env.DATABASE_URL }),
+    ...(env.DATABASE_POOL_MIN !== undefined && { databasePoolMin: env.DATABASE_POOL_MIN }),
+    ...(env.DATABASE_POOL_MAX !== undefined && { databasePoolMax: env.DATABASE_POOL_MAX }),
+    ...(env.DATABASE_IDLE_TIMEOUT_MS !== undefined && { databaseIdleTimeoutMs: env.DATABASE_IDLE_TIMEOUT_MS }),
+    ...(env.DATABASE_CONNECTION_TIMEOUT_MS !== undefined && { databaseConnectionTimeoutMs: env.DATABASE_CONNECTION_TIMEOUT_MS }),
     ...(env.CIRCLE_API_KEY !== undefined && { circleApiKey: env.CIRCLE_API_KEY }),
   };
 }

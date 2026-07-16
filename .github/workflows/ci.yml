@@ -66,7 +66,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      DATABASE_URL: postgresql://postgres:***@localhost:5432/archon_treasury_test
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/archon_treasury_test
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -78,6 +78,56 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm test:unit
+
+  db-integration:
+    name: Database Integration
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: testpassword
+          POSTGRES_DB: archon_treasury_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      DATABASE_URL: postgresql://postgres:testpassword@localhost:5432/archon_treasury_test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Verify PostgreSQL is healthy
+        run: |
+          for i in $(seq 1 10); do
+            pg_isready -h localhost -p 5432 -U postgres && break || sleep 2
+          done
+      - name: Run database integration tests
+        run: pnpm --filter @archon-treasury/database test:integration
+      - name: Verify migration from empty database
+        run: |
+          # Create a fresh database for migration testing
+          PGPASSWORD=testpassword psql -h localhost -U postgres -d postgres -c \
+            "DROP DATABASE IF EXISTS archon_treasury_migration_test;"
+          PGPASSWORD=testpassword psql -h localhost -U postgres -d postgres -c \
+            "CREATE DATABASE archon_treasury_migration_test;"
+          # Run migration against empty database
+          DATABASE_URL="postgresql://postgres:testpassword@localhost:5432/archon_treasury_migration_test" \
+            pnpm --filter @archon-treasury/database db:migrate
+          # Run migration again — should be idempotent/no-op
+          DATABASE_URL="postgresql://postgres:testpassword@localhost:5432/archon_treasury_migration_test" \
+            pnpm --filter @archon-treasury/database db:migrate
 
   build:
     name: Build
