@@ -60,7 +60,8 @@ See PRD Section 21 for full schema. Key entities:
 - `organizations` — tenant root
 - `users` — minimal identities that may belong to multiple organizations
 - `organization_members` — organization-scoped role and membership status
-- `treasuries` — logical asset pool
+- `treasuries` — organization-owned logical asset and operation pools; balances
+  live in future wallet/position records, not directly on Treasury
 - `wallets` — DCW and agent wallet records
 - `policies` — versioned policy rules
 - `route_intents` — user transfer requests
@@ -72,6 +73,13 @@ See PRD Section 21 for full schema. Key entities:
 - `execution_steps` — per-step persistence
 - `receipts` — final verifiable receipts
 - `audit_events` — append-only audit trail
+
+Organization is the tenant root. Personal use is one user, one organization,
+and one treasury; team use adds members and treasuries without a separate
+architecture. Treasury environment is an immutable safety boundary, and
+`mainnet` metadata does not enable mainnet execution. Treasury persistence is
+organization-scoped; authenticated tenant derivation and `treasury.*` RBAC
+checks remain application-layer responsibilities.
 
 ## State Machine
 

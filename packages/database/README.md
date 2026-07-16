@@ -4,7 +4,8 @@
 
 ## Status
 
-Phase 1 — Organization tenant root, minimal users, organization membership, and explicit RBAC persistence foundation.
+Phase 1 — Organization tenant root, minimal users, organization membership,
+explicit RBAC, and organization-scoped Treasury persistence foundation.
 
 ## Architecture
 
@@ -19,21 +20,26 @@ packages/database/
 │   │   ├── index.ts       # Schema export boundary
 │   │   ├── organizations.ts       # Tenant root
 │   │   ├── users.ts               # Minimal user identity
-│   │   └── organization-members.ts # User ↔ organization role binding
+│   │   ├── organization-members.ts # User ↔ organization role binding
+│   │   └── treasuries.ts          # Organization-owned logical pools
 │   ├── repositories/
 │   │   ├── organization-repository.ts
 │   │   ├── user-repository.ts
-│   │   └── organization-member-repository.ts
+│   │   ├── organization-member-repository.ts
+│   │   └── treasury-repository.ts
 │   ├── index.ts           # Public API barrel
 │   └── *.test.ts          # Unit + integration tests
 ├── migrations/            # Drizzle-generated SQL (committed to Git)
 │   ├── 0000_baseline.sql   # Baseline migration (no business tables)
 │   ├── 0001_organization.sql  # Organization table + slug unique index
 │   ├── 0002_users_organization_members.sql
+│   ├── 0003_treasuries.sql
 │   └── meta/
 │       ├── _journal.json
 │       ├── 0000_snapshot.json
-│       └── 0001_snapshot.json
+│       ├── 0001_snapshot.json
+│       ├── 0002_snapshot.json
+│       └── 0003_snapshot.json
 ├── drizzle.config.ts      # Drizzle Kit CLI config
 ├── package.json
 └── tsconfig.json
@@ -88,6 +94,30 @@ Hermes or other agents financial approval permission and does not implement
 treasury, Circle, CCTP, wallet execution, proposals, authentication, API
 routes, frontend, MCP, or x402 behavior.
 
+## Treasuries
+
+`treasuries` stores logical pools owned by exactly one organization. It stores
+identity, normalized name, status, environment metadata, and timestamps only.
+Balances remain future wallet/position state and do not live directly on a
+treasury.
+
+- `UNIQUE (organization_id, name)` permits the same name across tenants.
+- Names must be trimmed and 1–255 characters; repository input trims, while
+  persistence mapping rejects non-canonical stored values as data-integrity
+  failures.
+- Status is `active | suspended`.
+- Environment is `testnet | mainnet` and immutable after creation. `mainnet`
+  metadata does not activate mainnet execution.
+- `findById`, `listByOrganization`, and `update` always include organization
+  scope. Cross-organization reads return null and updates return not found.
+- The application layer derives organization scope from authenticated context
+  and checks `treasury.create`, `treasury.read`, or `treasury.update`; the
+  repository performs no RBAC checks and depends on neither users nor members.
+
+This foundation does not add wallet records, balances, Circle, CCTP, policy,
+audit, authentication, API/frontend, Hermes/MCP/x402, queues, proposals,
+approvals, or execution behavior.
+
 ## Repository Interface
 
 ```typescript
@@ -97,6 +127,13 @@ interface OrganizationRepository {
   findById(id: OrganizationId): Promise<Organization | null>;
   findBySlug(slug: OrganizationSlug): Promise<Organization | null>;
   update(input: UpdateOrganizationInput): Promise<Organization>;
+}
+
+interface TreasuryRepository {
+  create(input: CreateTreasuryInput): Promise<Treasury>;
+  findById(organizationId: OrganizationId, treasuryId: TreasuryId): Promise<Treasury | null>;
+  listByOrganization(organizationId: OrganizationId): Promise<readonly Treasury[]>;
+  update(input: UpdateTreasuryInput): Promise<Treasury>;
 }
 ```
 
@@ -176,5 +213,7 @@ DATABASE_URL="postgresql://postgres:***@localhost:5432/archon_treasury_test" \
 - No arbitrary SQL, no string interpolation in queries
 - Unique slug conflicts mapped to stable domain errors
 - Duplicate normalized user emails and duplicate organization memberships map to stable conflicts
+- Duplicate treasury names are classified only for the named organization/name constraint
 - Membership authorization lookups require explicit organization scope
+- Treasury single-resource lookups and updates require explicit organization scope
 - No raw PostgreSQL error leakage to callers

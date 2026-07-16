@@ -93,6 +93,38 @@ export function organizationPersistenceError(reason: string): DataIntegrityError
   );
 }
 
+// ── Treasury-specific errors ─────────────────────────────────────────────
+
+export function invalidTreasuryNameError(): ValidationError {
+  return new ValidationError("Invalid treasury name");
+}
+
+export function invalidTreasuryStatusError(): ValidationError {
+  return new ValidationError("Invalid treasury status");
+}
+
+export function invalidTreasuryEnvironmentError(): ValidationError {
+  return new ValidationError("Invalid treasury environment");
+}
+
+export function treasuryConflictError(): ConflictError {
+  return new ConflictError(
+    "A treasury with this name already exists in this organization",
+  );
+}
+
+export function treasuryNotFoundError(): NotFoundError {
+  return new NotFoundError("Treasury");
+}
+
+export function treasuryPersistenceError(reason: string): DataIntegrityError {
+  return new DataIntegrityError(`Treasury persistence mapping failed: ${reason}`);
+}
+
+export function emptyTreasuryUpdateError(): ValidationError {
+  return new ValidationError("Empty treasury update: no fields to change");
+}
+
 // ── User-specific errors ──────────────────────────────────────────────────
 
 export function userNotFoundError(): NotFoundError {

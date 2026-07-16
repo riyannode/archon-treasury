@@ -96,8 +96,14 @@ async function resetDatabase(): Promise<void> {
 beforeAll(async () => {
   await resetDatabase();
   db = connectDatabase(config);
-  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
-  await migrate(db, { migrationsFolder: MIGRATIONS_FOLDER });
+  await migrate(db, {
+    migrationsFolder: MIGRATIONS_FOLDER,
+    migrationsSchema: "public",
+  });
+  await migrate(db, {
+    migrationsFolder: MIGRATIONS_FOLDER,
+    migrationsSchema: "public",
+  });
   users = new PgUserRepository(db);
   members = new PgOrganizationMemberRepository(db);
   organizations = new PgOrganizationRepository(db);
@@ -118,14 +124,14 @@ beforeEach(async () => {
   }
 });
 
-describe("migration 0002", () => {
+describe("migrations through 0003", () => {
   it("migrates from empty and reruns idempotently with required tables and indexes", async () => {
     const client = await getPool().connect();
     try {
       const migrationCount = await client.query(
         'SELECT COUNT(*)::int AS count FROM public."__drizzle_migrations"',
       );
-      expect(migrationCount.rows[0]?.count).toBe(3);
+      expect(migrationCount.rows[0]?.count).toBe(4);
 
       const tables = await client.query(
         "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name IN ('users', 'organization_members') ORDER BY table_name",

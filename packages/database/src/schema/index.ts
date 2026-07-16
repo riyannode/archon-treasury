@@ -20,6 +20,10 @@ export type {
   NewOrganizationMemberRow,
 } from "./organization-members.js";
 
+// Treasuries (organization-owned logical asset and operation pools)
+export { treasuries } from "./treasuries.js";
+export type { TreasuryRow, NewTreasuryRow } from "./treasuries.js";
+
 // Re-export drizzle-orm utilities for downstream schema packages
 export { pgTable } from "drizzle-orm/pg-core";
 export { uuid, timestamp, text } from "drizzle-orm/pg-core";

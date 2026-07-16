@@ -113,30 +113,30 @@ jobs:
           for i in $(seq 1 10); do
             pg_isready -h localhost -p 5432 -U postgres && break || sleep 2
           done
-      - name: Run baseline + organization migrations on empty database
+      - name: Run committed migrations on empty database
         run: |
           # Service container starts with archon_treasury_test DB (empty)
-          # Run committed migrations (baseline + organization)
+          # Run committed migrations (0000 through 0003)
           pnpm --filter @archon-treasury/database db:migrate
       - name: Verify migration metadata in public schema
         run: |
           # Migration metadata stored explicitly in public.__drizzle_migrations
-          # Expected: 2 records (0000_baseline + 0001_organization)
+          # Expected: 4 records (0000_baseline through 0003_treasuries)
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
             "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after first run: $COUNT"
-          [ "$COUNT" = "3" ] || { echo "FAIL: expected 3 migration records, got $COUNT"; exit 1; }
-          echo "✓ Migration metadata recorded (3 records in public schema)"
+          [ "$COUNT" = "4" ] || { echo "FAIL: expected 4 migration records, got $COUNT"; exit 1; }
+          echo "✓ Migration metadata recorded (4 records in public schema)"
       - name: Verify migration rerun is idempotent
         run: |
           # Running migration again should be a no-op
           pnpm --filter @archon-treasury/database db:migrate
-          # Verify count is still 2
+          # Verify count is still 4
           COUNT=$(PGPASSWORD=testpassword psql -h localhost -U postgres -d archon_treasury_test -t -A -c \
             "SELECT COUNT(*) FROM \"public\".\"__drizzle_migrations\";")
           echo "Migration records after rerun: $COUNT"
-          [ "$COUNT" = "3" ] || { echo "FAIL: expected 3 migration records after rerun, got $COUNT"; exit 1; }
-          echo "✓ Migration rerun is idempotent (still 3 records)"
+          [ "$COUNT" = "4" ] || { echo "FAIL: expected 4 migration records after rerun, got $COUNT"; exit 1; }
+          echo "✓ Migration rerun is idempotent (still 4 records)"
       - name: Run database integration tests
         run: pnpm --filter @archon-treasury/database test:integration
 
